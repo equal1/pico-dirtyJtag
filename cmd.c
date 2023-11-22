@@ -25,8 +25,10 @@
 #include <string.h>
 
 #include <pico/stdlib.h>
+#include <pico/bootrom.h>
 #include <hardware/clocks.h>
 #include <hardware/gpio.h>
+#include <hardware/watchdog.h>
 
 #include "jtag.pio.h"
 #include "tusb.h"
@@ -43,7 +45,8 @@ enum CommandIdentifier {
   CMD_GETSIG = 0x05,
   CMD_CLK = 0x06,
   CMD_SETVOLTAGE = 0x07,
-  CMD_GOTOBOOTLOADER = 0x08
+  CMD_GOTOBOOTLOADER = 0x08,
+  CMD_REBOOT = 0x09
 };
 
 enum CommandModifier
@@ -139,6 +142,13 @@ static void cmd_setvoltage(const uint8_t *commands);
  */
 static void cmd_gotobootloader(void);
 
+/**
+ * @brief Handle CMD_REBOOT command
+ *
+ * CMD_REBOOT resets the MCU, without entering the bootloader
+ */
+static void cmd_reboot(void);
+
 void cmd_handle(pio_jtag_inst_t* jtag, uint8_t* rxbuf, uint32_t count, uint8_t* tx_buf) {
   uint8_t *commands= (uint8_t*)rxbuf;
   uint8_t *output_buffer = tx_buf;
@@ -190,7 +200,11 @@ void cmd_handle(pio_jtag_inst_t* jtag, uint8_t* rxbuf, uint32_t count, uint8_t* 
     case CMD_GOTOBOOTLOADER:
       cmd_gotobootloader();
       break;
-      
+
+    case CMD_REBOOT:
+      cmd_reboot();
+      break;
+
     default:
       return; /* Unsupported command, halt */
       break;
@@ -302,5 +316,13 @@ static void cmd_setvoltage(const uint8_t *commands) {
 }
 
 static void cmd_gotobootloader(void) {
+  reset_usb_boot(0, 0);
+}
 
+static void cmd_reboot(void) {
+  watchdog_reboot(0, 0, 100); // standard boot in 100ms
+  while (1)
+  {
+    asm volatile ("wfi");
+  }
 }
