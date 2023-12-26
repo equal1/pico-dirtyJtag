@@ -33,6 +33,7 @@
 #include "jtag.pio.h"
 #include "tusb.h"
 #include "pio_jtag.h"
+#include "git.h"
 #include "cmd.h"
 
 
@@ -222,9 +223,12 @@ void cmd_handle(pio_jtag_inst_t* jtag, uint8_t* rxbuf, uint32_t count, uint8_t* 
 }
 
 static uint32_t cmd_info(uint8_t *buffer) {
-  char info_string[10] = "DJTAG2\n";
-  memcpy(buffer, info_string, 10);
-  return 10;
+  extern char whoami[];
+  int n = strlen(whoami);
+  if (n > 60)
+    n = 60;
+  memcpy(buffer, whoami, n);
+  return n;
 }
 
 static void cmd_freq(pio_jtag_inst_t* jtag, const uint8_t *commands) {

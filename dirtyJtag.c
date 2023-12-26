@@ -10,6 +10,7 @@
 #include "tusb.h"
 #include "cmd.h"
 #include "get_serial.h"
+#include "git.h"
 
 #include "dirtyJtagConfig.h"
 
@@ -28,8 +29,11 @@ pio_jtag_inst_t jtag = {
             .sm = 0
 };
 
+char whoami[64];
 void djtag_init()
 {
+    snprintf (whoami, sizeof(whoami), "DirtyJTAG-pico %s %s%s %s", 
+              git_Branch, git_Describe, git_AnyUncommittedChanges?"(dirty)":"", git_Remote);
     init_pins();
     #if !( BOARD_TYPE == BOARD_QMTECH_RP2040_DAUGHTERBOARD )
     init_jtag(&jtag, 1000, PIN_TCK, PIN_TDI, PIN_TDO, PIN_TMS, PIN_RST, PIN_TRST);
