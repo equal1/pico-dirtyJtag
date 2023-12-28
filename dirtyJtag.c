@@ -29,7 +29,13 @@ pio_jtag_inst_t jtag = {
             .sm = 0
 };
 
-char whoami[64];
+static char whoami[256];
+
+const char *djtag_whoami()
+{
+    return whoami;
+}
+
 void djtag_init()
 {
     snprintf (whoami, sizeof(whoami), "DirtyJTAG-pico %s %s%s %s", 
@@ -41,7 +47,7 @@ void djtag_init()
     init_jtag(&jtag, 1000, PIN_TCK, PIN_TDI, PIN_TDO, PIN_TMS, 255, 255);
     #endif
 }
-typedef uint8_t cmd_buffer[64];
+typedef uint8_t cmd_buffer[256];
 static uint wr_buffer_number = 0;
 static uint rd_buffer_number = 0; 
 typedef struct buffer_info

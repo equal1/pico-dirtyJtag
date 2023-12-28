@@ -214,19 +214,37 @@ void cmd_handle(pio_jtag_inst_t* jtag, uint8_t* rxbuf, uint32_t count, uint8_t* 
     commands++;
   }
   /* Send the transfer response back to host */
-  if (tx_buf != output_buffer)
-  {
-    tud_vendor_write(tx_buf, output_buffer - tx_buf);
-    tud_vendor_flush();
+  uint8_t *pout = tx_buf;
+  while (pout < output_buffer) {
+    /* wait until we can send something */
+    unsigned avl = tud_vendor_write_available();
+    while (! avl) {
+      tud_vendor_flush();
+      sleep_ms(1);
+      avl = tud_vendor_write_available();
+    }
+    /* send as much as we can right now */
+    unsigned n = output_buffer - pout;
+    if (n > avl)
+      n = avl;
+    tud_vendor_write(pout, n);
+    unsigned m = 0;
+    do {
+      m = tud_vendor_flush();
+      if (! m)
+        sleep_ms(1);
+    } while (m < n);
+    pout += n;
   }
   return;
 }
 
 static uint32_t cmd_info(uint8_t *buffer) {
-  extern char whoami[];
+  const char *djtag_whoami();
+  const char *whoami = djtag_whoami();
   int n = strlen(whoami);
-  if (n > 60)
-    n = 60;
+  if (n > 252)
+    n = 252;
   memcpy(buffer, whoami, n);
   return n;
 }

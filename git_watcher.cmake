@@ -240,7 +240,7 @@ function(GetGitState _working_dir)
 
     # Get output of git describe
     execute_process(COMMAND
-        /bin/sh -c "git remote -v show | grep origin | grep fetch | sed 's,^.*git@,,' | sed 's,\(fetch.*$,,'"
+        /bin/sh -c "git remote -v show | grep origin | grep fetch | sed 's,^.*github.com,github.com,' | sed 's,.git \(fetch.*$,,'"
         WORKING_DIRECTORY "${_working_dir}"
         RESULT_VARIABLE exit_code
         OUTPUT_VARIABLE output
