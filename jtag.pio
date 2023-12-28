@@ -23,7 +23,7 @@ loop:
 % c-sdk {
 #include "hardware/gpio.h"
 static inline void pio_jtag_init(PIO pio, uint sm,
-        uint16_t clkdiv, uint pin_tck, uint pin_tdi, uint pin_tdo) {
+        unsigned clkdiv, uint pin_tck, uint pin_tdi, uint pin_tdo) {
     uint prog_offs = pio_add_program(pio, &djtag_tdo_program);
     pio_sm_config c = djtag_tdo_program_get_default_config(prog_offs);
     sm_config_set_out_pins(&c, pin_tdi, 1);
@@ -32,7 +32,7 @@ static inline void pio_jtag_init(PIO pio, uint sm,
     //(shift to left, auto push/pull, threshold=nbits)
     sm_config_set_out_shift(&c, false, true, 8);
     sm_config_set_in_shift(&c, false, true, 8);
-    sm_config_set_clkdiv_int_frac(&c, clkdiv, 0);
+    sm_config_set_clkdiv_int_frac(&c, clkdiv >> 8, clkdiv & 0xff);
 
     // TDI, TCK output are low, TDO is input
     pio_sm_set_pins_with_mask(pio, sm, 0, (1u << pin_tck) | (1u << pin_tdi));

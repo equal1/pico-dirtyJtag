@@ -266,14 +266,16 @@ void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uin
     jtag->pin_rst = pin_rst;
     jtag->pin_trst = pin_trst;
     #endif
-    uint16_t clkdiv = 31;  // around 1 MHz @ 125MHz clk_sys
+    // the JTAG PIO program is 4 cycles (out:1, in:1, jmp:2)
+    // so the JTAG clock will be sysclk (125MHz) / 4 / clkdiv
+    // for a 1MHz JTAG frequency, clkdiv is 125M/1M/4 = 31.25
+    unsigned clkdiv = (unsigned)(31.25 * 256);  // 1 MHz @ 125MHz clk_sys (jtag_clk @ 250KHz)
     pio_jtag_init(jtag->pio, jtag->sm,
                     clkdiv,
                     pin_tck,
                     pin_tdi,
                     pin_tdo
                  );
-
     jtag_set_clk_freq(jtag, freq);
 }
 
@@ -281,12 +283,18 @@ struct djtag_clk_s djtag_clocks;
 
 void jtag_set_clk_freq(const pio_jtag_inst_t *jtag, uint freq_khz) {
     uint clk_sys_freq_khz = clock_get_hz(clk_sys) / 1000;
-    uint32_t divider = (clk_sys_freq_khz / freq_khz) / 4;
-    divider = (divider < 2) ? 2 : divider; //max reliable freq 
+    unsigned wanted_pio_freq = freq_khz * 4;
+    // round to nearest
+    // do the 256* thing because we want a Q16.8 result
+    uint32_t clkdiv = (256*clk_sys_freq_khz + wanted_pio_freq/2 - 1) / wanted_pio_freq;
+    if (clkdiv < 0x200)
+        clkdiv = 0x200;
+    else if (clkdiv > 0xffffff)
+        clkdiv = 0xffffff;
     djtag_clocks.sys_khz = clk_sys_freq_khz;
-    djtag_clocks.divider = divider;
-    djtag_clocks.jtag_khz = clk_sys_freq_khz / divider / 4;
-    pio_sm_set_clkdiv_int_frac(pio0, jtag->sm, divider, 0);
+    djtag_clocks.divider = clkdiv;
+    djtag_clocks.jtag_khz = 256*clk_sys_freq_khz / clkdiv / 4;
+    pio_sm_set_clkdiv_int_frac(pio0, jtag->sm, clkdiv >> 8, clkdiv & 0xff);
 }
 
 void jtag_transfer(const pio_jtag_inst_t *jtag, uint32_t length, const uint8_t* in, uint8_t* out)
