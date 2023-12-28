@@ -15,6 +15,11 @@ typedef struct pio_jtag_inst {
     uint pin_trst;
 } pio_jtag_inst_t;
 
+struct djtag_clk_s {
+    uint32_t sys_khz;
+    uint32_t divider;
+    uint32_t jtag_khz;
+};
 
 void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst, uint pin_trst);
 

@@ -47,7 +47,8 @@ enum CommandIdentifier {
   CMD_CLK = 0x06,
   CMD_SETVOLTAGE = 0x07,
   CMD_GOTOBOOTLOADER = 0x08,
-  CMD_REBOOT = 0x09
+  CMD_REBOOT = 0x09,
+  CMD_GETCLKS = 0x0a
 };
 
 enum CommandModifier
@@ -150,6 +151,13 @@ static void cmd_gotobootloader(void);
  */
 static void cmd_reboot(void);
 
+/**
+ * @brief Handle CMD_GETCLKS command
+ *
+ * CMD_GETCLKS gets the jtag clock configuration
+ */
+static uint32_t cmd_getclks(uint8_t *buffer);
+
 void cmd_handle(pio_jtag_inst_t* jtag, uint8_t* rxbuf, uint32_t count, uint8_t* tx_buf) {
   uint8_t *commands= (uint8_t*)rxbuf;
   uint8_t *output_buffer = tx_buf;
@@ -159,6 +167,12 @@ void cmd_handle(pio_jtag_inst_t* jtag, uint8_t* rxbuf, uint32_t count, uint8_t* 
     case CMD_INFO:
     {
       uint32_t trbytes = cmd_info(output_buffer);
+      output_buffer += trbytes;
+      break;
+    }
+    case CMD_GETCLKS:
+    {
+      uint32_t trbytes = cmd_getclks(output_buffer);
       output_buffer += trbytes;
       break;
     }
@@ -358,4 +372,10 @@ static void cmd_reboot(void) {
   {
     asm volatile ("wfi");
   }
+}
+
+static uint32_t cmd_getclks(uint8_t *buffer) {
+  extern const struct djtag_clk_s djtag_clocks;
+  memcpy(buffer, &djtag_clocks, sizeof(djtag_clocks));
+  return sizeof(djtag_clocks);
 }
