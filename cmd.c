@@ -214,6 +214,16 @@ void cmd_handle(pio_jtag_inst_t* jtag, uint8_t* rxbuf, uint32_t count, uint8_t* 
     commands++;
   }
   /* Send the transfer response back to host */
+# if 1
+  if (tx_buf != output_buffer)
+  {
+    unsigned n = output_buffer - tx_buf;
+    if (n > 64)
+      n = 64;
+    tud_vendor_write(tx_buf, n);
+    tud_vendor_flush();
+  }
+# else
   uint8_t *pout = tx_buf;
   while (pout < output_buffer) {
     /* wait until we can send something */
@@ -236,6 +246,7 @@ void cmd_handle(pio_jtag_inst_t* jtag, uint8_t* rxbuf, uint32_t count, uint8_t* 
     } while (m < n);
     pout += n;
   }
+# endif
   return;
 }
 
