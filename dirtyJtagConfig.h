@@ -11,14 +11,16 @@
 #define BOARD_QMTECH_RP2040_DAUGHTERBOARD 3
 #define BOARD_WERKZEUG       4
 #define BOARD_RP2040_ZERO    5
+#define BOARD_E1           6
 
 // Select the board type from the above
-#define BOARD_TYPE BOARD_PICO
+//#define BOARD_TYPE BOARD_PICO
 //#define BOARD_TYPE BOARD_ADAFRUIT_ITSY
 //#define BOARD_TYPE BOARD_SPOKE_RP2040
 //#define BOARD_TYPE BOARD_WERKZEUG
 //#define BOARD_TYPE BOARD_QMTECH_RP2040_DAUGHTERBOARD
 //#define BOARD_TYPE BOARD_RP2040_ZERO
+#define BOARD_TYPE BOARD_E1
 
 // General mapping
 // TDI  SPIO RX
@@ -51,6 +53,47 @@
 #define PIN_UART1_TX    4
 #define PIN_UART1_RX    5
 #endif // USB_CDC_UART_BRIDGE
+
+#elif ( BOARD_TYPE == BOARD_E1 )
+
+// equal1 jtag
+// - provide 2 CDC interfaces
+//   - CDC0 is the UART bridge
+//   - CDC1 is the SPI bridge
+// - use GP0/GP1 (uart0; header.0,1) for the UART CDC
+// - use GP2..GP7 (header.4..7,9,10) for the JTAG
+// - use GP10..13 (spi1; header.14..17) for the SPI CDC
+// this leaves GP16..21 (spi0+GP20,21; header.21,22,24..27) free
+// (in turn, allowing the use of a W5500-EVB-Pico, enabling connections
+//  over Ethernet instead of USB in the future)
+
+#define PIN_TMS  2 // header.4
+#define PIN_TCK  3 // header.5
+#define PIN_TDO  4 // header.6
+#define PIN_TDI  5 // header.7
+#define PIN_TRST 6 // header.9
+#define PIN_RST  7 // header.10
+
+#define LED_INVERTED   0
+#define PIN_LED_TX     25
+#define PIN_LED_ERROR  25
+#define PIN_LED_RX     25
+
+#undef USB_CDC_UART_BRIDGE
+#define USB_CDC_UART_BRIDGE  1
+#define USB_CDC_SPI_BRIDGE  1
+
+#define PIN_UART_INTF_COUNT 1
+#define PIN_UART0 uart0
+#define PIN_UART0_TX    0 // header.1
+#define PIN_UART0_RX    1 // header.2
+
+#define PIN_SPI_INTF_COUNT 1
+#define PIN_SPI0 spi1
+#define PIN_SPI0_SCLK    10 // header.14
+#define PIN_SPI0_MOSI    11 // header.15
+#define PIN_SPI0_MISO    12 // header.16
+#define PIN_SPI0_CSn     13 // header.17
 
 #elif ( BOARD_TYPE == BOARD_ADAFRUIT_ITSY )
 
@@ -167,5 +210,9 @@
 
 
 #endif // BOARD_TYPE
+
+#ifndef USB_CDC_SPI_BRIDGE
+#define USB_CDC_SPI_BRIDGE 0
+#endif
 
 #endif // DirtyJtagConfig_h
