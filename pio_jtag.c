@@ -2,6 +2,7 @@
 #include "hardware/dma.h"
 #include "pio_jtag.h"
 #include "jtag.pio.h"
+#include "dirtyJtagConfig.h"
 
 void jtag_task();//to process USB OUT packets while waiting for DMA to finish
 
@@ -242,12 +243,14 @@ uint8_t __time_critical_func(pio_jtag_write_tms_blocking)(const pio_jtag_inst_t 
 static void init_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst, uint pin_trst)
 {
     #if !( BOARD_TYPE == BOARD_QMTECH_RP2040_DAUGHTERBOARD )
-    // emulate open drain with pull up and direction
+    // emulate open drain for TRST# and SRST#
     gpio_pull_up(pin_rst);
+    gpio_pull_up(pin_trst);
     gpio_clr_mask((1u << pin_tms) | (1u << pin_rst) | (1u << pin_trst));
     gpio_init_mask((1u << pin_tms) | (1u << pin_rst) | (1u << pin_trst));
-    gpio_set_dir_masked( (1u << pin_tms) | (1u << pin_trst), 0xffffffffu);
+    gpio_set_dir_masked( (1u << pin_tms), 0xffffffffu);
     gpio_set_dir(pin_rst, false);
+    gpio_set_dir(pin_trst, false);
     #else
     gpio_clr_mask((1u << pin_tms));
     gpio_init_mask((1u << pin_tms));

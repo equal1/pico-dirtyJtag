@@ -47,7 +47,8 @@ static inline void jtag_set_rst(const pio_jtag_inst_t *jtag, bool value)
 }
 static inline void jtag_set_trst(const pio_jtag_inst_t *jtag, bool value)
 {
-    gpio_put(jtag->pin_trst, value);
+    /* Change the direction to out to drive pin to 0 or to in to emulate open drain */
+    gpio_set_dir(jtag->pin_trst, !value);
 }
 
 // The following APIs assume that they are called in the following order:
