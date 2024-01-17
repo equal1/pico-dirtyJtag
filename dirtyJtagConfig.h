@@ -215,4 +215,50 @@
 #define USB_CDC_SPI_BRIDGE 0
 #endif
 
+#define CDC_NONE  0
+#define CDC_UART0 1
+#define CDC_UART1 2
+#define CDC_SPI   3
+
+#if ( USB_CDC_UART_BRIDGE &&( PIN_UART_INTF_COUNT == 2 )&& USB_CDC_SPI_BRIDGE )
+# define NCDC 3
+# define CDC0_TYPE CDC_UART0
+# define CDC1_TYPE CDC_UART1
+# define CDC2_TYPE CDC_SPI
+# define CDC0_NAME "UART 0"
+# define CDC1_NAME "UART 1"
+# define CDC2_NAME "SPI"
+#elif ( USB_CDC_UART_BRIDGE &&( PIN_UART_INTF_COUNT == 2 ))
+# define NCDC 2
+# define CDC0_TYPE CDC_UART0
+# define CDC1_TYPE CDC_UART1
+# define CDC2_TYPE CDC_NONE
+# define CDC0_NAME "UART 0"
+# define CDC1_NAME "UART 1"
+#elif ( USB_CDC_UART_BRIDGE && USB_CDC_SPI_BRIDGE )
+# define NCDC 2
+# define CDC0_TYPE CDC_UART0
+# define CDC1_TYPE CDC_SPI
+# define CDC2_TYPE CDC_NONE
+# define CDC0_NAME "UART"
+# define CDC1_NAME "SPI"
+#elif ( USB_CDC_UART_BRIDGE )
+# define NCDC 1
+# define CDC0_TYPE CDC_UART0
+# define CDC1_TYPE CDC_NONE
+# define CDC2_TYPE CDC_NONE
+# define CDC0_NAME "UART"
+#elif ( USB_CDC_UART_BRIDGE )
+# define NCDC 1
+# define CDC0_TYPE CDC_SPI
+# define CDC1_TYPE CDC_NONE
+# define CDC2_TYPE CDC_NONE
+# define CDC0_NAME "SPI"
+#else
+# define NCDC 0
+# define CDC0_TYPE CDC_NONE
+# define CDC1_TYPE CDC_NONE
+# define CDC2_TYPE CDC_NONE
+#endif
+
 #endif // DirtyJtagConfig_h

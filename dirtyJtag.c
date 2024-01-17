@@ -38,7 +38,7 @@ const char *djtag_whoami()
 
 void djtag_init()
 {
-    snprintf (whoami, sizeof(whoami), "DirtyJTAG-pico %s %s%s %s", 
+    snprintf (whoami, sizeof(whoami), "DirtyJTAG2-pico %s %s%s %s", 
               git_Branch, git_Describe, git_AnyUncommittedChanges?"(dirty)":"", git_Remote);
     init_pins();
     #if !( BOARD_TYPE == BOARD_QMTECH_RP2040_DAUGHTERBOARD )
