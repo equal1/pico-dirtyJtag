@@ -1,8 +1,8 @@
-
 #ifndef _PIO_JTAG_H
 #define _PIO_JTAG_H
 
 #include "hardware/pio.h"
+#include "dirtyJtagConfig.h"
 
 typedef struct pio_jtag_inst {
     PIO pio;
@@ -38,17 +38,22 @@ uint8_t jtag_strobe(const pio_jtag_inst_t *jtag, uint32_t length, bool tms, bool
 
 static inline void jtag_set_tms(const pio_jtag_inst_t *jtag, bool value)
 {
-    gpio_put(jtag->pin_tms, value);
+  gpio_put(jtag->pin_tms, value);
 }
 static inline void jtag_set_rst(const pio_jtag_inst_t *jtag, bool value)
 {
-    /* Change the direction to out to drive pin to 0 or to in to emulate open drain */
-    gpio_set_dir(jtag->pin_rst, !value);
+  /* Change the direction to out to drive pin to 0 or to in to emulate open drain */
+  gpio_set_dir(jtag->pin_rst, !value);
 }
 static inline void jtag_set_trst(const pio_jtag_inst_t *jtag, bool value)
 {
-    /* Change the direction to out to drive pin to 0 or to in to emulate open drain */
-    gpio_set_dir(jtag->pin_trst, !value);
+# if BOARD_TYPE != BOARD_E1
+  // most boards use driven TRST#
+  gpio_put(jtag->pin_trst, value);
+# else
+  // E1 board uses open-drain for TRST#
+  gpio_set_dir(jtag->pin_trst, !value);
+# endif
 }
 
 // The following APIs assume that they are called in the following order:
@@ -60,7 +65,5 @@ void jtag_set_tdi(const pio_jtag_inst_t *jtag, bool value);
 void jtag_set_clk(const pio_jtag_inst_t *jtag, bool value);
 
 bool jtag_get_tdo(const pio_jtag_inst_t *jtag);
-
-
 
 #endif

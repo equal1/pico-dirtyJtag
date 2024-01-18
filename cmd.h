@@ -23,7 +23,10 @@
  * @brief Handle a DirtyJTAG command
  *
  * @param usbd_dev USB device
- * @param transfer Received packet
- * @return Command needs to send data back to host
+ * @param buf Buffer index
+ * @param cmdbuf Commands buffer
+ * @param cmdsz Size of commands buffer
+ * @param respbuf Response buffer
+ * @return Number of produced response bytes
  */
-void cmd_handle(pio_jtag_inst_t* jtag, uint8_t* rxbuf, uint32_t count, uint8_t* tx_buf);
+unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf);
