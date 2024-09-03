@@ -2,6 +2,7 @@
 #include "hardware/dma.h"
 #include "pio_jtag.h"
 #include "jtag.pio.h"
+#include "a5clk.pio.h"
 #include "dirtyJtagConfig.h"
 
 // we use multicore, so all the JTAG tasks run on core 1 _while_ core 0
@@ -163,7 +164,7 @@ uint8_t __time_critical_func(pio_jtag_write_tms_blocking)
   return x;
 }
 
-static void init_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst, uint pin_trst)
+static void init_jtag_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst, uint pin_trst)
 {
 # if BOARD_TYPE != BOARD_QMTECH_RP2040_DAUGHTERBOARD
   // emulate open drain for SRST#
@@ -171,12 +172,8 @@ static void init_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, ui
   gpio_clr_mask((1u << pin_tms) | (1u << pin_rst) | (1u << pin_trst));
   gpio_init_mask((1u << pin_tms) | (1u << pin_rst) | (1u << pin_trst));
 # if BOARD_TYPE != BOARD_E1
+  // on the E1 board, we ditched TRST#
   gpio_set_dir_masked( (1u << pin_tms) | (1u << pin_trst), 0xffffffffu);
-# else
-  // on the E1 board, also emulate open drain for TRST#
-  gpio_pull_up(pin_trst);
-  gpio_set_dir_masked( (1u << pin_tms), 0xffffffffu);
-  gpio_set_dir(pin_trst, false);
 # endif
   gpio_set_dir(pin_rst, false);
 # else
@@ -186,9 +183,17 @@ static void init_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, ui
 # endif
 }
 
+static void init_a5clk_pin(uint pin)
+{
+# if BOARD_TYPE == BOARD_E1
+  gpio_clr_mask(1u << pin);
+  gpio_init_mask(1u << pin);
+# endif
+}
+
 void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst, uint pin_trst)
 {
-  init_pins(pin_tck, pin_tdi, pin_tdo, pin_tms, pin_rst, pin_trst);
+  init_jtag_pins(pin_tck, pin_tdi, pin_tdo, pin_tms, pin_rst, pin_trst);
   jtag->pin_tdi = pin_tdi;
   jtag->pin_tdo = pin_tdo;
   jtag->pin_tck = pin_tck;
@@ -205,6 +210,19 @@ void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uin
   jtag_set_clk_freq(jtag, freq);
 }
 
+void init_a5clk(pio_a5clk_inst_t* a5clk, uint freq, uint pin)
+{
+  init_a5clk_pin(pin);
+  a5clk->pin = pin;
+  // the A5CLK PIO program is 2 cycles
+  // so the JTAG clock will be sysclk (125MHz) / 2 / clkdiv
+  // for a 1MHz JTAG frequency, clkdiv is 125M/1M/2 = 62.5
+  unsigned clkdiv = (unsigned)(62.5 * 256);  // 1 MHz @ 125MHz clk_sys
+  pio_a5clk_init(a5clk->pio, a5clk->sm, clkdiv, pin);
+  a5clk_set_freq(a5clk, freq);
+  a5clk->enabled = 0;
+}
+
 struct djtag_clk_s djtag_clocks;
 
 void jtag_set_clk_freq(const pio_jtag_inst_t *jtag, uint freq_khz) {
@@ -218,9 +236,25 @@ void jtag_set_clk_freq(const pio_jtag_inst_t *jtag, uint freq_khz) {
   else if (clkdiv > 0xffffff)
     clkdiv = 0xffffff;
   djtag_clocks.sys_khz = clk_sys_freq_khz;
-  djtag_clocks.divider = clkdiv;
+  djtag_clocks.jtag_divider = clkdiv;
   djtag_clocks.jtag_khz = 256*clk_sys_freq_khz / clkdiv / 4;
-  pio_sm_set_clkdiv_int_frac(pio0, jtag->sm, clkdiv >> 8, clkdiv & 0xff);
+  pio_sm_set_clkdiv_int_frac(jtag->pio, jtag->sm, clkdiv >> 8, clkdiv & 0xff);
+}
+
+void a5clk_set_freq(const pio_a5clk_inst_t *a5clk, uint freq_khz) {
+  uint clk_sys_freq_khz = clock_get_hz(clk_sys) / 1000;
+  unsigned wanted_pio_freq = freq_khz * 2;
+  // round to nearest
+  // do the 256* thing because we want a Q16.8 result
+  uint32_t clkdiv = (256*clk_sys_freq_khz + wanted_pio_freq/2 - 1) / wanted_pio_freq;
+  if (clkdiv < 0x200)
+    clkdiv = 0x200;
+  else if (clkdiv > 0xffffff)
+    clkdiv = 0xffffff;
+  djtag_clocks.sys_khz = clk_sys_freq_khz;
+  djtag_clocks.a5clk_divider = clkdiv;
+  djtag_clocks.a5clk_khz = 256*clk_sys_freq_khz / clkdiv / 2;
+  pio_sm_set_clkdiv_int_frac(a5clk->pio, a5clk->sm, clkdiv >> 8, clkdiv & 0xff);
 }
 
 void jtag_transfer(const pio_jtag_inst_t *jtag, uint32_t length, const uint8_t* in, uint8_t* out)

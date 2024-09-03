@@ -32,8 +32,11 @@
 void init_pins()
 {
   bi_decl(bi_4pins_with_names(PIN_TCK, "TCK", PIN_TDI, "TDI", PIN_TDO, "TDO", PIN_TMS, "TMS"));
-# if !( BOARD_TYPE == BOARD_QMTECH_RP2040_DAUGHTERBOARD )
-  bi_decl(bi_2pins_with_names(PIN_RST, "RST", PIN_TRST, "TRST"));
+# if (PIN_RST != -1)
+  bi_decl(bi_1pin_with_name(PIN_RST, "RST"));
+# endif
+# if (PIN_TRST != -1)
+  bi_decl(bi_1pin_with_name(PIN_TRST, "TRST"));
 # endif
 }
 
@@ -41,6 +44,11 @@ pio_jtag_inst_t jtag = {
   .pio = pio0,
   .sm = 0
 };
+pio_a5clk_inst_t a5clk = {
+  .pio = pio1,
+  .sm = 0
+};
+
 
 static char whoami[256];
 
@@ -66,6 +74,9 @@ void djtag_init()
 # else
   init_jtag(&jtag, 1000, PIN_TCK, PIN_TDI, PIN_TDO, PIN_TMS, 255, 255);
 # endif
+  init_a5clk(&a5clk, 100, PIN_A5_CLK);
+  // // enable A5 clock
+  // pio_sm_set_enabled(a5clk.pio, a5clk.sm, true);
 }
 
 // use double buffering - while one buffer is busy receiving/transmitting,
@@ -349,7 +360,7 @@ int main()
   usb_serial_init();
   tusb_init();
   // enable stdio over uart1 on pins tx=8, rx=9
-  stdio_uart_init_full(uart1, 115200, 8, 9);
+  stdio_uart_init_full(uart1, 115200, 8, -1);
 
   snprintf (whoami, sizeof(whoami), "DirtyJTAG2-pico %s %s%s %s", 
             git_Branch, git_Describe, git_AnyUncommittedChanges?"(dirty)":"", git_Remote);

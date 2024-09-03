@@ -29,6 +29,7 @@
 #include <hardware/clocks.h>
 #include <hardware/gpio.h>
 #include <hardware/watchdog.h>
+#include <hardware/spi.h>
 
 #include "jtag.pio.h"
 #include "tusb.h"
@@ -50,7 +51,9 @@ enum CommandIdentifier {
   CMD_SETVOLTAGE = 0x07, // not implemented
   CMD_GOTOBOOTLOADER = 0x08,
   CMD_REBOOT = 0x09, // DirtyJTAG extension
-  CMD_GETCLKS = 0x0a // DirtyJTAG extension
+  CMD_GETCLKS = 0x0a, // DirtyJTAG extension
+  CMD_A5FREQ = 0x0b, // DirtyJTAG extension: set A5 clock frequency
+  CMD_A5CLK = 0x0c,  // DirtyJTAG extension: enable/disable A5 clock
 };
 
 enum CommandModifier
@@ -60,6 +63,8 @@ enum CommandModifier
   EXTEND_LENGTH = 0x40,
   // CMD_CLK
   READOUT = 0x80,
+  // CMD_A5CLK
+  TURN_ON = 0x80
 };
 
 enum SignalIdentifier {
@@ -75,7 +80,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
 {
   unsigned cmdpos = 0, resppos = 0;
   const char *djtag_whoami();
-  extern const struct djtag_clk_s djtag_clocks;
+  extern struct djtag_clk_s djtag_clocks;
   int n, m;
   while (cmdpos < cmdsz) {
     uint8_t cmd = cmdbuf[cmdpos];
@@ -124,6 +129,13 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
       cmdpos += 3;
       break;
 
+    case CMD_A5FREQ:
+      cmd_printf (" %c# @%u CMD_A5FREQ\n", '0'+buf, cmdpos);
+      extern pio_a5clk_inst_t a5clk;
+      a5clk_set_freq(&a5clk, ((unsigned)cmdbuf[cmdpos+1] << 8) | cmdbuf[cmdpos+2]);
+      cmdpos += 3;
+      break;
+
     case CMD_GETSIG:
       cmd_printf (" %c# @%u CMD_GETSIG >1\n", '0'+buf, cmdpos);
       n = 0;
@@ -148,6 +160,16 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
       if (n & SIG_SRST)
         jtag_set_rst(jtag, m & SIG_SRST);
       cmdpos += 3;
+      break;
+
+    case CMD_A5CLK:
+    case CMD_A5CLK|TURN_ON:
+      cmd_printf (" %c# @%u CMD_A5CLK %s\n", '0'+buf, cmdpos, (cmd == CMD_A5CLK) ? "OFF" : "ON");
+      extern pio_a5clk_inst_t a5clk;
+      a5clk.enabled = cmd != CMD_A5CLK;
+      djtag_clocks.a5clk_en = a5clk.enabled;
+      pio_sm_set_enabled(a5clk.pio, a5clk.sm, a5clk.enabled);
+      ++cmdpos;
       break;
 
     case CMD_CLK:
@@ -209,3 +231,66 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
   cmd_printf (" %c# done, cmd_sz=%u(%u) resp_sz=0x%u\n", '0'+buf, cmdpos, cmdsz, resppos);
   return resppos;
 }
+
+#define IOX_DO_RD 0x80
+#define IOX_DO_WR 0x00
+
+#define IOX_CMD_GET 0x00 // read gpios
+#define IOX_CMD_SET 0x02 // set output value; defaults to 1(high)
+//#define IOX_CMD_RDINV 0x04 // invert input polarity; defaults to 0(off)
+#define IOX_CMD_CFG 0x06 // config gpios; defaults to 1(inputs)
+//#define IOX_CMD_PULLUP 0x08 // pull-up enable; defaults to 0(off)
+//#define IOX_CMD_INTEN 0x0a // interrupt enable; defaults to 0(off)
+//#define IOX_CMD_HIZ 0x0c // output Hi-Z; defaults to 0(driven outputs)
+//#define IOX_CMD_INTST 0x0e // interrupt status
+//#define IOX_CMD_INTPOS 0x10 // enable interrupt on positive edge; defaults to 0(off)
+//#define IOX_CMD_INTNEG 0x12 // enable interrupt on negative edge; defaults to 0(off)
+//#define IOX_CMD_INTFLT 0x14 // input filtering (ignore <225ns pulses, acknowledge >1075ns; anything inbetween may or may not be filtered); defaults to 1(on)
+
+int32_t iox_readcmd_all(unsigned cmd) {
+  const uint8_t
+    cmd_l[2] = { IOX_DO_RD | ((cmd | 0) << 1), 0xff},
+    cmd_h[2] = { IOX_DO_RD | ((cmd | 1) << 1), 0xff};
+  uint8_t resp_l[2], resp_h[2];
+  // read in the low, then high, values
+  if (2 != spi_write_read_blocking(SPI_IOX, cmd_l, resp_l, 2))
+    return -1;
+  if (2 != spi_write_read_blocking(SPI_IOX, cmd_h, resp_h, 2))
+    return -1;
+  uint32_t result = (((uint32_t)resp_h[1]) << 8) | resp_l[1];
+  return result;
+}
+
+int32_t iox_writecmd_all(unsigned cmd, uint32_t all) {
+  uint8_t
+    cmd_l[2] = { IOX_DO_WR | ((cmd | 0) << 1), all & 0xFF },
+    cmd_h[2] = { IOX_DO_WR | ((cmd | 1) << 1), (all >> 8) & 0xFF };
+  // wrute the low, then high, values
+  if (2 != spi_write_blocking(SPI_IOX, cmd_l, 2))
+    return -1;
+  if (2 != spi_write_blocking(SPI_IOX, cmd_h, 2))
+    return -2;
+  return 0;
+}
+
+// get all the pins
+// (for output pins, we get the intended output value, not the actual value)
+int32_t iox_get_all() {
+  return iox_readcmd_all(IOX_CMD_GET);
+}
+
+// set all the pins
+// (no effect for input pins)
+static uint32_t last_output_values = 0xffffffff;
+int32_t iox_set_all(uint32_t all) {
+  last_output_values = all;
+  return iox_writecmd_all(IOX_CMD_SET, all);
+}
+
+// configure all the pins (0=out, 1=in)
+static uint32_t last_config_values = 0xffffffff;
+int32_t iox_config_all(uint32_t all) {
+  last_config_values = all;
+  return iox_writecmd_all(IOX_CMD_CFG, all);
+}
+

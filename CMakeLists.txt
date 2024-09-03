@@ -40,11 +40,12 @@ add_executable(dirtyJtag
 target_include_directories(dirtyJtag PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/jtag.pio)
+pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/a5clk.pio)
 
 pico_set_program_name(dirtyJtag "dirtyJtag")
 pico_set_program_version(dirtyJtag "0.1")
 
-#pico_enable_stdio_uart(dirtyJtag 0)
+#pico_enable_stdio_uart(dirtyJtag 1)
 #pico_enable_stdio_usb(dirtyJtag 0)
 
 # Create a library out of the compiled post-configure file.
@@ -56,8 +57,9 @@ target_link_libraries(dirtyJtag PRIVATE pico_stdlib)
 # Add any user requested libraries
 target_link_libraries(dirtyJtag PRIVATE
 	cmake_git_version_tracking
-    hardware_pio
+	hardware_pio
 	hardware_dma
+	hardware_spi
 	pico_unique_id
 	tinyusb_device
 	tinyusb_board
