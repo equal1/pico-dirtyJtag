@@ -74,7 +74,7 @@ void djtag_init()
 # else
   init_jtag(&jtag, 1000, PIN_TCK, PIN_TDI, PIN_TDO, PIN_TMS, 255, 255);
 # endif
-  init_a5clk(&a5clk, 100, PIN_A5_CLK);
+  init_a5clk(&a5clk, 1000, PIN_A5_CLK);
   // // enable A5 clock
   // pio_sm_set_enabled(a5clk.pio, a5clk.sm, true);
 }

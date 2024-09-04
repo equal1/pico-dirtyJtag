@@ -166,21 +166,13 @@ uint8_t __time_critical_func(pio_jtag_write_tms_blocking)
 
 static void init_jtag_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst, uint pin_trst)
 {
-# if BOARD_TYPE != BOARD_QMTECH_RP2040_DAUGHTERBOARD
-  // emulate open drain for SRST#
-  gpio_pull_up(pin_rst);
-  gpio_clr_mask((1u << pin_tms) | (1u << pin_rst) | (1u << pin_trst));
-  gpio_init_mask((1u << pin_tms) | (1u << pin_rst) | (1u << pin_trst));
-# if BOARD_TYPE != BOARD_E1
-  // on the E1 board, we ditched TRST#
-  gpio_set_dir_masked( (1u << pin_tms) | (1u << pin_trst), 0xffffffffu);
-# endif
-  gpio_set_dir(pin_rst, false);
-# else
+  // initialize gpios - would make them inputs
+  gpio_init_mask((1u << pin_tms) | (1u << pin_rst));
+  // drive 0 on TMS, 1 on SRST# initially
   gpio_clr_mask((1u << pin_tms));
-  gpio_init_mask((1u << pin_tms));
-  gpio_set_dir_masked( (1u << pin_tms), 0xffffffffu);
-# endif
+  gpio_set_mask((1u << pin_rst));
+  // set TMS ans SRST# as outputs
+  gpio_set_dir_masked( (1u << pin_tms) | (1u << pin_rst), 0xffffffffu);
 }
 
 static void init_a5clk_pin(uint pin)
@@ -198,10 +190,8 @@ void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uin
   jtag->pin_tdo = pin_tdo;
   jtag->pin_tck = pin_tck;
   jtag->pin_tms = pin_tms;
-# if !( BOARD_TYPE == BOARD_QMTECH_RP2040_DAUGHTERBOARD )
   jtag->pin_rst = pin_rst;
   jtag->pin_trst = pin_trst;
-# endif
   // the JTAG PIO program is 4 cycles (out:1, in:1, jmp:2)
   // so the JTAG clock will be sysclk (125MHz) / 4 / clkdiv
   // for a 1MHz JTAG frequency, clkdiv is 125M/1M/4 = 31.25
@@ -238,7 +228,10 @@ void jtag_set_clk_freq(const pio_jtag_inst_t *jtag, uint freq_khz) {
   djtag_clocks.sys_khz = clk_sys_freq_khz;
   djtag_clocks.jtag_divider = clkdiv;
   djtag_clocks.jtag_khz = 256*clk_sys_freq_khz / clkdiv / 4;
+  // mess with the clocks with the state machine DISABLED
+  pio_sm_set_enabled(jtag->pio, jtag->sm, false);
   pio_sm_set_clkdiv_int_frac(jtag->pio, jtag->sm, clkdiv >> 8, clkdiv & 0xff);
+  pio_sm_set_enabled(jtag->pio, jtag->sm, true);
 }
 
 void a5clk_set_freq(const pio_a5clk_inst_t *a5clk, uint freq_khz) {
@@ -251,10 +244,13 @@ void a5clk_set_freq(const pio_a5clk_inst_t *a5clk, uint freq_khz) {
     clkdiv = 0x200;
   else if (clkdiv > 0xffffff)
     clkdiv = 0xffffff;
-  djtag_clocks.sys_khz = clk_sys_freq_khz;
   djtag_clocks.a5clk_divider = clkdiv;
   djtag_clocks.a5clk_khz = 256*clk_sys_freq_khz / clkdiv / 2;
+  if (djtag_clocks.a5clk_en)
+    pio_sm_set_enabled(a5clk->pio, a5clk->sm, false);
   pio_sm_set_clkdiv_int_frac(a5clk->pio, a5clk->sm, clkdiv >> 8, clkdiv & 0xff);
+  if (djtag_clocks.a5clk_en)
+    pio_sm_set_enabled(a5clk->pio, a5clk->sm, true);
 }
 
 void jtag_transfer(const pio_jtag_inst_t *jtag, uint32_t length, const uint8_t* in, uint8_t* out)
