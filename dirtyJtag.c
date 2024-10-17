@@ -362,7 +362,9 @@ int main()
   // enable stdio over uart1 on pins tx=8, rx=9
   stdio_uart_init_full(uart1, 115200, 8, -1);
 
-  snprintf (whoami, sizeof(whoami), "DirtyJTAG2-pico %s %s%s %s", 
+  snprintf (whoami, sizeof(whoami), 
+            "DirtyJTAG2-pico %s %s%s %s [custom]\n"
+            "    with: A5clk, driven_RST#, pincfg_setall", 
             git_Branch, git_Describe, git_AnyUncommittedChanges?"(dirty)":"", git_Remote);
   printf ("\n%s\n", whoami);
 

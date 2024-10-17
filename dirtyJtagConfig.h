@@ -84,7 +84,7 @@
 #define PIN_MISO  12 // GP12, header.16
 
 #define PIN_TX     1 // GP1, header.1
-#define PIN_RX     1 // GP2, header.2
+#define PIN_RX     2 // GP2, header.2
 
 #define PIN_DBGTX  8 // GP8, header.12
 
@@ -110,7 +110,6 @@
 #define PIN_A5_CLK     28 // GP28, header.34
 #define PIN_A5_GPIO10  27 // GP27, header.32
 #define PIN_A5_GPIO7   26 // GP26, header.31
-#define PIN_A5_GPIO6   22 // GP22, header.29
 #define PIN_A5_GPIO6   22 // GP22, header.29
 
 // pins on IOX
