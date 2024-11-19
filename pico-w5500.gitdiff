@@ -1,0 +1,15 @@
+diff --git a/Internet/DHCP/dhcp.c b/Internet/DHCP/dhcp.c
+index 87f4db9..d6200a2 100644
+--- a/Internet/DHCP/dhcp.c
++++ b/Internet/DHCP/dhcp.c
+@@ -50,8 +50,8 @@
+ //
+ //*****************************************************************************
+ 
+-#include "socket.h"
+-#include "dhcp.h"
++#include <socket.h>
++#include <dhcp.h>
+ 
+ /* If you want to display debug & processing message, Define _DHCP_DEBUG_ in dhcp.h */
+ 

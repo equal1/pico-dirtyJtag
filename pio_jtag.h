@@ -12,7 +12,6 @@ typedef struct pio_jtag_inst {
     uint pin_tck;
     uint pin_tms;
     uint pin_rst;
-    uint pin_trst;
 } pio_jtag_inst_t;
 
 typedef struct pio_a5clk_inst {
@@ -31,7 +30,7 @@ struct djtag_clk_s {
     uint32_t a5clk_en;
 };
 
-void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst, uint pin_trst);
+void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst);
 void pio_jtag_write_blocking(const pio_jtag_inst_t *jtag, const uint8_t *src, size_t len);
 void pio_jtag_write_read_blocking(const pio_jtag_inst_t *jtag, const uint8_t *src, uint8_t *dst, size_t len);
 uint8_t pio_jtag_write_tms_blocking(const pio_jtag_inst_t *jtag, bool tdi, bool tms, size_t len);
@@ -58,10 +57,6 @@ static inline void jtag_set_rst(const pio_jtag_inst_t *jtag, bool value)
 static inline void jtag_set_trst(const pio_jtag_inst_t *jtag, bool value)
 {
   // no TRST on E1 board
-# if BOARD_TYPE != BOARD_E1
-  // most boards use driven TRST#
-  gpio_put(jtag->pin_trst, value);
-# endif
 }
 
 // The following APIs assume that they are called in the following order:

@@ -29,4 +29,4 @@
  * @param respbuf Response buffer
  * @return Number of produced response bytes
  */
-unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf);
+unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf);

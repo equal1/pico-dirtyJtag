@@ -2,6 +2,10 @@
 
 cmake_minimum_required(VERSION 3.13)
 
+set(WIZNET_DIR ${CMAKE_SOURCE_DIR}/pico-w5500)
+add_definitions(-D_WIZCHIP_=W5500)
+add_definitions(-DDEVICE_BOARD_NAME=W5500_EVB_PICO)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 #set(CMAKE_BUILD_TYPE "Release")
@@ -26,18 +30,20 @@ project(dirtyJtag C CXX ASM)
 pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
-
 add_executable(dirtyJtag
 		dirtyJtag.c
 		usb_descriptors.c
 		pio_jtag.c
-        cdc_uart.c
 		get_serial.c
 		cmd.c
-        led.c
+		led.c
+		ethernet.c
 )
-
-target_include_directories(dirtyJtag PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(dirtyJtag PUBLIC 
+		${CMAKE_CURRENT_SOURCE_DIR}
+		${WIZNET_DIR}/Ethernet
+		${WIZNET_DIR}/Ethernet/W5500
+		)
 
 pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/jtag.pio)
 pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/a5clk.pio)
@@ -45,7 +51,7 @@ pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/a5clk.pio)
 pico_set_program_name(dirtyJtag "dirtyJtag")
 pico_set_program_version(dirtyJtag "0.1")
 
-#pico_enable_stdio_uart(dirtyJtag 1)
+pico_enable_stdio_uart(dirtyJtag 1)
 #pico_enable_stdio_usb(dirtyJtag 0)
 
 # Create a library out of the compiled post-configure file.
@@ -64,7 +70,19 @@ target_link_libraries(dirtyJtag PRIVATE
 	tinyusb_device
 	tinyusb_board
 	pico_multicore
+	ETHERNET_FILES
 )
 
-pico_add_extra_outputs(dirtyJtag)
+# ethernet library
+add_library(ETHERNET_FILES STATIC)
+target_sources(ETHERNET_FILES PUBLIC
+		${WIZNET_DIR}/Ethernet/socket.c
+		${WIZNET_DIR}/Ethernet/wizchip_conf.c
+		${WIZNET_DIR}/Ethernet/W5500/w5500.c
+        ${WIZNET_DIR}/Internet/DHCP/dhcp.c)
+target_include_directories(ETHERNET_FILES PUBLIC
+		${CMAKE_CURRENT_SOURCE_DIR}
+        ${WIZNET_DIR}/Ethernet
+        ${WIZNET_DIR}/Internet/DHCP)
 
+pico_add_extra_outputs(dirtyJtag)

@@ -164,7 +164,7 @@ uint8_t __time_critical_func(pio_jtag_write_tms_blocking)
   return x;
 }
 
-static void init_jtag_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst, uint pin_trst)
+static void init_jtag_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst)
 {
   // initialize gpios - would make them inputs
   gpio_init_mask((1u << pin_tms) | (1u << pin_rst));
@@ -183,15 +183,14 @@ static void init_a5clk_pin(uint pin)
 # endif
 }
 
-void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst, uint pin_trst)
+void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst)
 {
-  init_jtag_pins(pin_tck, pin_tdi, pin_tdo, pin_tms, pin_rst, pin_trst);
+  init_jtag_pins(pin_tck, pin_tdi, pin_tdo, pin_tms, pin_rst);
   jtag->pin_tdi = pin_tdi;
   jtag->pin_tdo = pin_tdo;
   jtag->pin_tck = pin_tck;
   jtag->pin_tms = pin_tms;
   jtag->pin_rst = pin_rst;
-  jtag->pin_trst = pin_trst;
   // the JTAG PIO program is 4 cycles (out:1, in:1, jmp:2)
   // so the JTAG clock will be sysclk (125MHz) / 4 / clkdiv
   // for a 1MHz JTAG frequency, clkdiv is 125M/1M/4 = 31.25

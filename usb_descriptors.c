@@ -27,25 +27,14 @@
 #include "tusb.h"
 #include "get_serial.h"
 
-#if ( NCDC > 0 )
+//#define USB_BCD   0x0110
 #define USB_BCD   0x0200
-#else
-#define USB_BCD   0x0110
-#endif
 
-#if ( BOARD_TYPE == BOARD_E1 )
 #define USB_VENDOR 0x1209
 #define USB_DEVICE 0xC0CB
 #define STR_VENDOR "equal1"
 #define STR_DEVICE "DirtyJTAG2"
 #define CDC_PREFIX "DirtyJTAG2 CDC "
-#else
-#define USB_VENDOR 0x1209
-#define USB_DEVICE 0xC0CA
-#define STR_VENDOR "Jean THOMAS"
-#define STR_DEVICE "DirtyJTAG"
-#define CDC_PREFIX "DirtyJTAG CDC "
-#endif
 
 //--------------------------------------------------------------------+
 // Device Descriptors
@@ -83,38 +72,13 @@ uint8_t const * tud_descriptor_device_cb(void)
 enum
 {
   ITF_NUM_PROBE = 0,
-#if ( USB_CDC_UART_BRIDGE )
-  ITF_NUM_CDC_1 = 1,
-  ITF_NUM_CDC_1_DATA,
-  ITF_NUM_CDC_2 = 3,
-  ITF_NUM_CDC_2_DATA,
-#endif 
   ITF_NUM_TOTAL
 };
 
 #define PROBE_OUT_EP_NUM 0x01
 #define PROBE_IN_EP_NUM  0x82
-#if ( NCDC > 0 )
-#define CDC_NOTIF_EP1_NUM 0x83
-#define CDC_OUT_EP1_NUM   0x03
-#define CDC_IN_EP1_NUM    0x84
-#if ( NCDC > 1 )
-#define CDC_NOTIF_EP2_NUM 0x85
-#define CDC_OUT_EP2_NUM   0x05
-#define CDC_IN_EP2_NUM    0x86
-#if ( NCDC > 2 )
-#define CDC_NOTIF_EP3_NUM 0x87
-#define CDC_OUT_EP3_NUM   0x07
-#define CDC_IN_EP3_NUM    0x88
-#endif 
-#endif 
-#endif 
 
-#if ( USB_CDC_UART_BRIDGE )
-#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_VENDOR_DESC_LEN + TUD_CDC_DESC_LEN * CFG_TUD_CDC)
-#else
 #define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_VENDOR_DESC_LEN)
-#endif
 
 uint8_t const desc_configuration[CONFIG_TOTAL_LEN] =
 {
@@ -123,16 +87,6 @@ uint8_t const desc_configuration[CONFIG_TOTAL_LEN] =
 
   // Interface 2 : Interface number, string index, EP Out & IN address, EP size
   TUD_VENDOR_DESCRIPTOR(ITF_NUM_PROBE, 0, PROBE_OUT_EP_NUM, PROBE_IN_EP_NUM, 64),
-#if ( NCDC > 0 )
-  // Interface 3 : Interface number, string index, EP notification address and size, EP data address (out, in) and size.
-  TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_1, 4, CDC_NOTIF_EP1_NUM, 8, CDC_OUT_EP1_NUM, CDC_IN_EP1_NUM, 64),
-#if ( NCDC > 1 )
-  TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_2, 5, CDC_NOTIF_EP2_NUM, 8, CDC_OUT_EP2_NUM, CDC_IN_EP2_NUM, 64),
-#if ( NCDC > 2 )
-  TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_3, 6, CDC_NOTIF_EP3_NUM, 8, CDC_OUT_EP3_NUM, CDC_IN_EP3_NUM, 64),
-#endif
-#endif
-#endif
 };
 
 // Invoked when received GET CONFIGURATION DESCRIPTOR
@@ -155,15 +109,6 @@ char const *string_desc_arr[] =
     STR_VENDOR,                 // 1: Manufacturer
     STR_DEVICE,                 // 2: Product
     usb_serial,                 // 3: Serial, uses flash unique ID
-#if ( NCDC > 0 )
-    CDC_PREFIX CDC0_NAME,   // 4: CDC Interface 0
-#if ( NCDC > 1 )
-    CDC_PREFIX CDC1_NAME,   // 5: CDC Interface 1
-#if ( NCDC > 2 )
-    CDC_PREFIX CDC2_NAME,       // 6: CDC Interface 2
-#endif
-#endif
-#endif
 };
 
 static uint16_t _desc_str[32];

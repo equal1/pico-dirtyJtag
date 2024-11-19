@@ -121,7 +121,7 @@ static const uint32_t pico_pins =
   (1 << PIN_RST) | (1 << PIN_A5_CLK) | // a5 reset#, sysclk
   (1 << PIN_TMS) | (1 << PIN_TCK) | (1 << PIN_TDO) | (1 << PIN_TDI) |  // a5 jtag signals
   (1 << PIN_A5_UART_TX) | (1 << PIN_A5_UART_RX) | // a5 gpio 0, 1
-  (1 << PIN_A5_SS) | (1 << PIN_A5_SCK) | (1 << PIN_A5_MOSI) | (1 << PIN_A5_MISO) | // a5 gpio 2..5
+  (1 << PIN_A5_SSn) | (1 << PIN_A5_SCK) | (1 << PIN_A5_MOSI) | (1 << PIN_A5_MISO) | // a5 gpio 2..5
   (1 << PIN_A5_GPIO6) | (1 << PIN_A5_GPIO7) | (1 << PIN_A5_GPIO10) | // a5 gpio 6, 7, 10
   (1 << PIN_A5_SCANIN) | (1 << PIN_A5_SCANOUT); // a5 scanin/scanout
 // GPIOs on the IOX
@@ -144,7 +144,7 @@ static const char *pico_signames[32] = {
   [PIN_TDI] =        "TDI",
   [PIN_A5_UART_TX] = "TX",
   [PIN_A5_UART_RX] = "RX",
-  [PIN_A5_SS] =      "SS#",
+  [PIN_A5_SSn] =     "SS#",
   [PIN_A5_SCK] =     "SCK",
   [PIN_A5_MOSI] =    "MOSI",
   [PIN_A5_MISO] =    "MISO",
@@ -191,7 +191,7 @@ enum SignalIdentifier {
   SIG_SRST = 1 << 6
 };
 
-unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
+unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
   unsigned cmdpos = 0, resppos = 0;
   const char *djtag_whoami();
@@ -205,19 +205,23 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
 
     case CMD_SETVOLTAGE:
       // this one is a dummy
-      cmd_printf (" %c# @%u CMD_SETVOLTAGE (no-op)\n", '0'+buf, cmdpos);
+      cmd_printf (" %c# @%u CMD_SETVOLTAGE (no-op)\n", buf, cmdpos);
       ++cmdpos;
       break;
 
     case CMD_GOTOBOOTLOADER:
-      printf (" %c# @%u CMD_BOOTLOADER\n", '0'+buf, cmdpos);
+      cmd_printf (" %c# @%u CMD_BOOTLOADER\n", buf, cmdpos);
+      puts ("Rebooting to bootloader...");
+      sleep_ms(200);
       reset_usb_boot(0, 0);
       while (1)
         asm volatile ("wfe");
       break;
 
     case CMD_REBOOT:
-      printf (" %c# @%u CMD_REBOOT\n", '0'+buf, cmdpos);
+      cmd_printf (" %c# @%u CMD_REBOOT\n", buf, cmdpos);
+      puts ("Rebooting...");
+      sleep_ms(200);
       watchdog_reboot(0, 0, 1); // standard boot in 1ms
       while (1)
         asm volatile ("wfe");
@@ -225,27 +229,27 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
 
     case CMD_INFO:
       n = strlen(djtag_whoami());
-      cmd_printf (" %c# @%u CMD_INFO >%u\n", '0'+buf, cmdpos, n);
+      cmd_printf (" %c# @%u CMD_INFO >%u\n", buf, cmdpos, n);
       memcpy(respbuf+resppos, djtag_whoami(), n);
       resppos += n;
       ++cmdpos;
       break;
 
     case CMD_GETCLKS:
-      cmd_printf (" %c# @%u CMD_GETCLKS >%u\n", '0'+buf, cmdpos, sizeof(djtag_clocks));
+      cmd_printf (" %c# @%u CMD_GETCLKS >%u\n", buf, cmdpos, sizeof(djtag_clocks));
       memcpy(respbuf+resppos, &djtag_clocks, sizeof(djtag_clocks));
       resppos += sizeof(djtag_clocks);
       ++cmdpos;
       break;
 
     case CMD_FREQ:
-      cmd_printf (" %c# @%u CMD_FREQ\n", '0'+buf, cmdpos);
+      cmd_printf (" %c# @%u CMD_FREQ\n", buf, cmdpos);
       jtag_set_clk_freq(jtag, ((unsigned)cmdbuf[cmdpos+1] << 8) | cmdbuf[cmdpos+2]);
       cmdpos += 3;
       break;
 
     case CMD_A5FREQ:
-      cmd_printf (" %c# @%u CMD_A5FREQ\n", '0'+buf, cmdpos);
+      cmd_printf (" %c# @%u CMD_A5FREQ\n", buf, cmdpos);
       extern pio_a5clk_inst_t a5clk;
       a5clk_set_freq(&a5clk, ((unsigned)cmdbuf[cmdpos+1] << 8) | cmdbuf[cmdpos+2]);
       cmdpos += 3;
@@ -255,7 +259,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
       int cfg = cmdbuf[cmdpos+1];
       static const char *drvstrs[4] = { "2mA", "4mA", "8mA", "12mA" };
       static const char *pulls[4] = { "none", "low", "high", "keep" };
-      cmd_printf (" %c# @%u CMD_PINCFG_SET_ALL SLEW=%s DRIVE=%s PULL=%s HYSTERESIS=%s\n", '0'+buf, cmdpos,
+      cmd_printf (" %c# @%u CMD_PINCFG_SET_ALL SLEW=%s DRIVE=%s PULL=%s HYSTERESIS=%s\n", buf, cmdpos,
         (cfg & PINCFG_SLEW_RATE_MASK) ? "fast" : "slow",
         drvstrs[(cfg & PINCFG_DRIVE_STRENGTH_MASK) >> PINCFG_DRIVE_STRENGTH_POS],
         pulls[(cfg & PINCFG_PULL_MASK) >> PINCFG_PULL_POS],
@@ -290,7 +294,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
       else if (pin < 0x40 + 16)
         valid_pin = iox_pins & (1u << (pin-0x40)),
         iox_pin = 1;
-      cmd_printf (" %c# @%u CMD_PINCFG_SET %u(%s.%s) SLEW=%s DRIVE=%s PULL=%s HYSTERESIS=%s\n", '0'+buf, cmdpos,
+      cmd_printf (" %c# @%u CMD_PINCFG_SET %u(%s.%s) SLEW=%s DRIVE=%s PULL=%s HYSTERESIS=%s\n", buf, cmdpos,
         pin, loc ? loc : "???", sig ? sig : "???",
         (cfg & PINCFG_SLEW_RATE_MASK) ? "fast" : "slow",
         drvstrs[(cfg & PINCFG_DRIVE_STRENGTH_MASK) >> PINCFG_DRIVE_STRENGTH_POS],
@@ -328,7 +332,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
       else if (pin < 0x40 + 16)
         valid_pin = iox_pins & (1u << (pin-0x40)),
         iox_pin = 1;
-      cmd_printf (" %c# @%u CMD_PINCFG_GET %u(%s.%s) >1\n", '0'+buf, cmdpos,
+      cmd_printf (" %c# @%u CMD_PINCFG_GET %u(%s.%s) >1\n", buf, cmdpos,
         pin, loc ? loc : "???", sig ? sig : "???");
       unsigned result = 0;
       if (valid_pin) {
@@ -362,7 +366,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
       break;
 
     case CMD_GETSIG:
-      cmd_printf (" %c# @%u CMD_PINCFG_GET >1\n", '0'+buf, cmdpos);
+      cmd_printf (" %c# @%u CMD_PINCFG_GET >1\n", buf, cmdpos);
       n = 0;
       if (jtag_get_tdo(jtag))
         n |= SIG_TDO;
@@ -371,7 +375,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
       break;
 
     case CMD_SETSIG:
-      cmd_printf (" %c# @%u CMD_SETSIG\n", '0'+buf, cmdpos);
+      cmd_printf (" %c# @%u CMD_SETSIG\n", buf, cmdpos);
       n = cmdbuf[cmdpos+1]; // mask
       m = cmdbuf[cmdpos+2]; // status
       if (n & SIG_TCK)
@@ -389,7 +393,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
 
     case CMD_A5CLK:
     case CMD_A5CLK|TURN_ON:
-      cmd_printf (" %c# @%u CMD_A5CLK %s\n", '0'+buf, cmdpos, (cmd == CMD_A5CLK) ? "OFF" : "ON");
+      cmd_printf (" %c# @%u CMD_A5CLK %s\n", buf, cmdpos, (cmd == CMD_A5CLK) ? "OFF" : "ON");
       extern pio_a5clk_inst_t a5clk;
       a5clk.enabled = cmd != CMD_A5CLK;
       //static int last_slew_rate = 0, last_drive_strength = 0;
@@ -417,7 +421,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
     case CMD_CLK|READOUT:
       n = cmdbuf[cmdpos+1]; // signals
       m = cmdbuf[cmdpos+2]; // number of clock pulses
-      cmd_printf (" %c# @%u CMD_CLK%s %u%s\n", '0'+buf, cmdpos, (cmd & READOUT)?",READOUT":"", m, (cmd & READOUT)?" >1":"");
+      cmd_printf (" %c# @%u CMD_CLK%s %u%s\n", buf, cmdpos, (cmd & READOUT)?",READOUT":"", m, (cmd & READOUT)?" >1":"");
       n = jtag_strobe(jtag, m, n & SIG_TMS, n & SIG_TDI);
       cmdpos += 3;
       if (cmd & READOUT)
@@ -433,10 +437,10 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
         n += 256;
       m = (n + 7) / 8;
       if (! (cmd & NO_READ))
-        cmd_printf (" %c# @%u CMD_XFER%s,NOREAD %u\n", '0'+buf, cmdpos,
+        cmd_printf (" %c# @%u CMD_XFER%s,NOREAD %u\n", buf, cmdpos,
                     (n >= 256)?",LARGE":"", n);
       else
-        cmd_printf (" %c# @%u CMD_XFER%s %u >%u\n", '0'+buf, cmdpos,
+        cmd_printf (" %c# @%u CMD_XFER%s %u >%u\n", buf, cmdpos,
                     (n >= 256)?",LARGE":"", n, m);
       // we can probably get away with using the response buffer even if the
       // read isn't requested
@@ -449,7 +453,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
     default:
       // invalid command: reboot
       // also: print the entire command byte, not just cmd[6:0]
-      cmd_printf (" %c# @%u ??? 0x%02X\n", '0'+buf, cmdpos, cmdbuf[cmdpos]);
+      cmd_printf (" %c# @%u ??? 0x%02X\n", buf, cmdpos, cmdbuf[cmdpos]);
       watchdog_reboot(0, 0, 100); // standard boot in 100ms (give time to UART to flush)
       while (1)
         asm volatile ("wfe");
@@ -459,17 +463,17 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, int buf,const uint8_t *cmdbuf, unsig
   // protocol forbids responses that are a multiple of 64 bytes, sof if that was the case, add one extra byte
   // there is one obvious exception, the null response
   if (resppos && ! (resppos & 63)) {
-    cmd_printf (" %c# resp_sz=0x%X; padding\n", '0'+buf, resppos);
+    cmd_printf (" %c# resp_sz=0x%X; padding\n", buf, resppos);
     respbuf[resppos++] = 0xA5;
   }
   if (resppos) {
-    cmd_printf (" %c# [", '0'+buf);
+    cmd_printf (" %c# [", buf);
     for (int i = 0; i < resppos; ++i ) {
       cmd_printf (" %02X", respbuf[i]);
     }
     cmd_printf (" ]\n");
   }
-  cmd_printf (" %c# done, cmd_sz=%u(%u) resp_sz=0x%u\n", '0'+buf, cmdpos, cmdsz, resppos);
+  cmd_printf (" %c# done, cmd_sz=%u(%u) resp_sz=0x%u\n", buf, cmdpos, cmdsz, resppos);
   return resppos;
 }
 

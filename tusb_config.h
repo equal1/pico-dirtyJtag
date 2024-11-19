@@ -65,18 +65,13 @@
 
 //------------- CLASS -------------//
 #define CFG_TUD_HID             0
-#define CFG_TUD_CDC             NCDC
+#define CFG_TUD_CDC             0
 #define CFG_TUD_MSC             0
 #define CFG_TUD_MIDI            0
 #define CFG_TUD_VENDOR          1
 
-#if ( USB_CDC_UART_BRIDGE )
-#define CFG_TUD_CDC_RX_BUFSIZE    256
-#define CFG_TUD_CDC_TX_BUFSIZE    256
-#endif
-
-#define CFG_TUD_VENDOR_RX_BUFSIZE 128
-#define CFG_TUD_VENDOR_TX_BUFSIZE 64
+#define CFG_TUD_VENDOR_RX_BUFSIZE 512
+#define CFG_TUD_VENDOR_TX_BUFSIZE 512
 
 #ifdef __cplusplus
  }
