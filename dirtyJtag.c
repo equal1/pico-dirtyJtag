@@ -6,6 +6,7 @@
 #include <pico/multicore.h>
 #include <pico/unique_id.h>
 #include <hardware/pio.h>
+#include <hardware/spi.h>
 #include <bsp/board.h>
 #include <tusb.h>
 #include "pio_jtag.h"
@@ -67,7 +68,57 @@ void djtag_init()
   init_a5clk(&a5clk, 1000, PIN_A5_CLK);
 }
 
+unsigned iox_spi_speed;
+int iox_check();
+void iox_init()
+{
+  // configure CS#
+  gpio_init(PIN_IOX_SSn);
+  gpio_set_dir(PIN_IOX_SSn, GPIO_OUT);
+  gpio_put(PIN_IOX_SSn, 1); // initially de-selected
+  bi_decl(bi_1pin_with_name(PIN_IOX_SSn, "IOX_SS#"));
+  // configure SPI itself - mode 0
+  spi_init(SPI_IOX, FREQ_IOX_KHZ * 1000);
+  spi_set_format (SPI_IOX, 8, 0, 0, 0);
+  // configure the SPI pins
+  gpio_set_function(PIN_IOX_SCK, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_IOX_MOSI, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_IOX_MISO, GPIO_FUNC_SPI);
+  bi_decl(bi_3pins_with_func(PIN_IOX_MISO, PIN_IOX_MOSI, PIN_IOX_SCK, GPIO_FUNC_SPI));
+  iox_spi_speed = spi_get_baudrate(SPI_IOX);
+  if (iox_check()) {
+    printf ("IOX does NOT work at %u.%uMHz!\n", (iox_spi_speed+500)/1000000, ((iox_spi_speed+500)%1000000)/1000);
+    iox_spi_speed = 0;
+  }
+}
+
+int adc_spi_speed, adc_addr;
+int adc_probe();
+void adc_init()
+{
+  // configure CS#
+  gpio_init(PIN_ADC_SSn);
+  gpio_set_dir(PIN_ADC_SSn, GPIO_OUT);
+  gpio_put(PIN_ADC_SSn, 1); // initially de-selected
+  bi_decl(bi_1pin_with_name(PIN_ADC_SSn, "ADC_SS#"));
+  // configure SPI itself - mode 0
+  spi_init(SPI_ADC, FREQ_ADC_KHZ * 1000);
+  spi_set_format (SPI_ADC, 8,0, 0, 0);
+  // configure the SPI pins
+  gpio_set_function(PIN_ADC_SCK, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_ADC_MOSI, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_ADC_MISO, GPIO_FUNC_SPI);
+  bi_decl(bi_3pins_with_func(PIN_ADC_MISO, PIN_ADC_MOSI, PIN_ADC_SCK, GPIO_FUNC_SPI));
+  adc_spi_speed = spi_get_baudrate(SPI_ADC);
+  adc_addr = -1;
+  if ((adc_addr = adc_probe()) < 0) {
+    printf ("ADC does NOT work at %u.%uMHz!\n", (adc_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000);
+    adc_spi_speed = 0;
+  }
+}
+
 // in ethernet.c
+int eth_spi_speed;
 int eth_init(uint64_t);
 
 // callback for updating the ID part
@@ -76,7 +127,7 @@ int eth_init(uint64_t);
 static uint64_t usbserial = 0;
 
 static char *ipconfig_ptr;
-static const char *hostname = "???", *macaddr = "???";
+static const char *hostname = "?", *macaddr = "?";
 
 void notify_ip_config(int link, const char *mac, const char *host, const char *srv, const char *cli)
 {
@@ -144,6 +195,17 @@ static void eth_tx_task();
 // core1 runs the jtag tasks
 static void core1_entry();
 
+static const char *location_of(void *ptr)
+{
+  if ((uint32_t)ptr < 0x10000000)
+    return "ROM";
+  if ((uint32_t)ptr < 0x20000000)
+    return "flash";
+  if ((uint32_t)ptr < 0x30000000)
+    return "RAM";
+  return "???";
+}
+
 //-----------------------------------------------------------------------------
 
 int main()
@@ -153,30 +215,62 @@ int main()
   usb_serial_init();
   tusb_init();
   stdio_uart_init_full(uart1, 115200, 8, -1); // enable stdio over uart1 on pin_tx=gp8, no rx
+  adc_init();
+  iox_init();
 
   // get the Pico's serial ID
   pico_unique_board_id_t uID;
   pico_get_unique_board_id(&uID);
-  usbserial = \
-    ((uint64_t)uID.id[0] << 56) | ((uint64_t)uID.id[1] << 48) | 
-    ((uint64_t)uID.id[2] << 40) | ((uint64_t)uID.id[3] << 32) | 
-    ((uint64_t)uID.id[4] << 24) | ((uint64_t)uID.id[5] << 16) | 
-    ((uint64_t)uID.id[6] <<  8) | ((uint64_t)uID.id[7] <<  0);
+  usbserial = __builtin_bswap64(*(uint64_t*)&uID);
   eth_init(usbserial);
 
   // initialize the header
-  snprintf (whoami, sizeof(whoami), 
-            "DirtyJTAG2-pico %s %s%s %s [custom]\n"
-            "  with: A5clk, driven_RST#, pincfg_setall\n"
-            "USB serial: %016llX; MAC: %s\n"
-            "Label: %04X; Hostname: %s\n", 
-            git_Branch, git_Describe, git_AnyUncommittedChanges?"(dirty)":"", git_Remote,
-            usbserial, macaddr,
-            (uint32_t)(usbserial >> 8) & 0xFFFF, hostname);
+  sprintf (whoami,
+            "equal1 DirtyJTAG2-pico (%s, %s%s %s)\n",
+            git_Branch, git_Describe, git_AnyUncommittedChanges?"|dirty":"",
+             git_Remote);
+  sprintf(whoami + strlen(whoami),
+          "  running from %s on %s, host board %s\n",
+          location_of(main),
+#         if PICO_RP2040
+          eth_spi_speed ? "a W5500_EVB_Pico" : "a Raspberry_Pico",
+#         elif PICO_RP2350
+          eth_spi_speed ? "a W5500_EVB_Pico2" : "a Raspberry_Pico2",
+#         else
+          "an unknown board",
+#         endif
+          adc_spi_speed ? "DDv2+" : "DDv1");
+  if (iox_spi_speed > 0)
+    sprintf(whoami + strlen(whoami),
+            "IOX: " IOX_NAME ", spi%c@%u.%03uMHz, SS#@GP%u\n",
+            (SPI_IOX == spi0)? '0' : '1',
+            (iox_spi_speed+500)/1000000, ((iox_spi_speed+500)%1000000)/1000,
+            PIN_IOX_SSn);
+  else
+    strcat(whoami, "IOX: not present\n");
+  if (adc_addr >= 0)
+    sprintf(whoami + strlen(whoami),
+            "ADC: " ADC_NAME ", spi%c@%u.%03uMHz, SS#@GP%u; device address %u\n",
+            (SPI_ADC == spi0)? '0' : '1',
+            (adc_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000,
+            PIN_ADC_SSn, adc_addr);
+  else
+    strcat(whoami, "ADC: not present\n");
+  sprintf(whoami + strlen(whoami),
+             "USB serial: %016llX (label: %04X)\n",
+            usbserial, (uint32_t)(usbserial >> 8) & 0xFFFF);
+  if (eth_spi_speed > 0)
+    sprintf(whoami + strlen(whoami),
+            "Ethernet: " ETH_NAME ", spi%c@%u.%03uMHz, SS#@GP%u; MAC address %s, hostname %s\n",
+            (SPI_ETH == spi0)? '0' : '1',
+            (eth_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000,
+            PIN_ETH_CSn, macaddr, hostname);
+  else
+    strcat(whoami, "Ethernet: not present\n");
   ipconfig_ptr = whoami + strlen(whoami);
 
   // printf the header
-  printf ("\n\n----\n%s", whoami);
+  printf ("\n----\n%s----\n", whoami);
 
   multicore_launch_core1(core1_entry);
   while (1) {

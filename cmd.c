@@ -31,6 +31,7 @@
 #include <hardware/watchdog.h>
 #include <hardware/spi.h>
 
+#include "dirtyJtagConfig.h"
 #include "jtag.pio.h"
 #include "tusb.h"
 #include "pio_jtag.h"
@@ -122,17 +123,18 @@ static const uint32_t pico_pins =
   (1 << PIN_TMS) | (1 << PIN_TCK) | (1 << PIN_TDO) | (1 << PIN_TDI) |  // a5 jtag signals
   (1 << PIN_A5_UART_TX) | (1 << PIN_A5_UART_RX) | // a5 gpio 0, 1
   (1 << PIN_A5_SSn) | (1 << PIN_A5_SCK) | (1 << PIN_A5_MOSI) | (1 << PIN_A5_MISO) | // a5 gpio 2..5
-  (1 << PIN_A5_GPIO6) | (1 << PIN_A5_GPIO7) | (1 << PIN_A5_GPIO10) | // a5 gpio 6, 7, 10
-  (1 << PIN_A5_SCANIN) | (1 << PIN_A5_SCANOUT); // a5 scanin/scanout
+  (1 << PIN_A5_GPIO6) | (1 << PIN_A5_GPIO10) | // a5 gpio 6, 7, 10
+  (1 << PIN_A5_SCANIN) | (1 << PIN_A5_SCANOUT) | (1 << PIN_A5_SCANEN); // a5 scan*
 // GPIOs on the IOX
 static const uint32_t iox_pins = 
   (1 << (PIN_A5_CLKSRC & ~0x40))   |
   (1 << (PIN_A5_TILESEL0 & ~0x40)) | (1 << (PIN_A5_TILESEL1 & ~0x40)) |
   (1 << (PIN_A5_TESTEN & ~0x40))   |
-  (1 << (PIN_A5_GPIO8 & ~0x40))    | (1 << (PIN_A5_GPIO9 & ~0x40))    |
-  (1 << (PIN_A5_GPIO11 & ~0x40))   | (1 << (PIN_A5_GPIO12 & ~0x40))   | 
-  (1 << (PIN_A5_GPIO13 & ~0x40))   | (1 << (PIN_A5_GPIO14 & ~0x40))   |
-  (1 << (PIN_A5_GPIO15 & ~0x40))   | (1 << (PIN_A5_GPIO16 & ~0x40));
+  (1 << (PIN_A5_GPIO7 & ~0x40))    | (1 << (PIN_A5_GPIO8 & ~0x40))    |
+  (1 << (PIN_A5_GPIO9 & ~0x40))    | (1 << (PIN_A5_GPIO11 & ~0x40))   |
+  (1 << (PIN_A5_GPIO12 & ~0x40))   | (1 << (PIN_A5_GPIO13 & ~0x40))   |
+  (1 << (PIN_A5_GPIO14 & ~0x40))   | (1 << (PIN_A5_GPIO15 & ~0x40))   |
+  (1 << (PIN_A5_GPIO16 & ~0x40));
 
 static const char *pico_signames[32] = {
   // on Pico
@@ -149,9 +151,9 @@ static const char *pico_signames[32] = {
   [PIN_A5_MOSI] =    "MOSI",
   [PIN_A5_MISO] =    "MISO",
   [PIN_A5_GPIO6] =   "GPIO6",
-  [PIN_A5_GPIO7] =   "GPIO7",
   [PIN_A5_GPIO10] =  "GPIO10",
   [PIN_A5_SCANIN] =  "SCANIN",
+  [PIN_A5_SCANEN] =  "SCANEN",
   [PIN_A5_SCANOUT] = "SCANOUT",
 }, *iox_signames[16] = {
   //on IOX
@@ -159,6 +161,7 @@ static const char *pico_signames[32] = {
   [PIN_A5_TILESEL0 & ~0x40] = "TILESEL0",
   [PIN_A5_TILESEL1 & ~0x40] = "TILESEL1",
   [PIN_A5_TESTEN & ~0x40] =   "TESTEN",
+  [PIN_A5_GPIO7 & ~0x40]  =   "GPIO7",
   [PIN_A5_GPIO8 & ~0x40]  =   "GPIO8",
   [PIN_A5_GPIO9 & ~0x40]  =   "GPIO9",
   [PIN_A5_GPIO11 & ~0x40] =   "GPIO11",
@@ -482,7 +485,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
 
 #define IOX_CMD_GET 0x00 // read gpios
 #define IOX_CMD_SET 0x02 // set output value; defaults to 1(high)
-//#define IOX_CMD_RDINV 0x04 // invert input polarity; defaults to 0(off)
+#define IOX_CMD_RDINV 0x04 // invert input polarity; defaults to 0(off)
 #define IOX_CMD_CFG 0x06 // config gpios; defaults to 1(inputs)
 //#define IOX_CMD_PULLUP 0x08 // pull-up enable; defaults to 0(off)
 //#define IOX_CMD_INTEN 0x0a // interrupt enable; defaults to 0(off)
@@ -492,29 +495,45 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
 //#define IOX_CMD_INTNEG 0x12 // enable interrupt on negative edge; defaults to 0(off)
 //#define IOX_CMD_INTFLT 0x14 // input filtering (ignore <225ns pulses, acknowledge >1075ns; anything inbetween may or may not be filtered); defaults to 1(on)
 
+extern int iox_spi_speed;
 int32_t iox_readcmd_all(unsigned cmd) {
+  if (iox_spi_speed < 1000)
+    return -1;
   const uint8_t
     cmd_l[2] = { IOX_DO_RD | ((cmd | 0) << 1), 0xff},
     cmd_h[2] = { IOX_DO_RD | ((cmd | 1) << 1), 0xff};
   uint8_t resp_l[2], resp_h[2];
   // read in the low, then high, values
-  if (2 != spi_write_read_blocking(SPI_IOX, cmd_l, resp_l, 2))
-    return -1;
-  if (2 != spi_write_read_blocking(SPI_IOX, cmd_h, resp_h, 2))
+  int a, b;
+  if (spi_get_baudrate(SPI_IOX) != iox_spi_speed)
+    spi_set_baudrate(SPI_IOX, iox_spi_speed);
+  gpio_put(PIN_IOX_SSn, 0);
+  a = spi_write_read_blocking(SPI_IOX, cmd_l, resp_l, 2);
+  b = spi_write_read_blocking(SPI_IOX, cmd_h, resp_h, 2);
+  gpio_put(PIN_IOX_SSn, 1);
+  if ((a != 2) || (b != 2))
     return -1;
   uint32_t result = (((uint32_t)resp_h[1]) << 8) | resp_l[1];
   return result;
 }
 
+extern int iox_spi_speed;
 int32_t iox_writecmd_all(unsigned cmd, uint32_t all) {
+  if (iox_spi_speed < 1000)
+    return -1;
   uint8_t
     cmd_l[2] = { IOX_DO_WR | ((cmd | 0) << 1), all & 0xFF },
     cmd_h[2] = { IOX_DO_WR | ((cmd | 1) << 1), (all >> 8) & 0xFF };
-  // wrute the low, then high, values
-  if (2 != spi_write_blocking(SPI_IOX, cmd_l, 2))
+  // write the low, then high, values
+  int a, b;
+  if (spi_get_baudrate(SPI_IOX) != iox_spi_speed)
+    spi_set_baudrate(SPI_IOX, iox_spi_speed);
+  gpio_put(PIN_IOX_SSn, 0);
+  a = spi_write_blocking(SPI_IOX, cmd_l, 2);
+  b = spi_write_blocking(SPI_IOX, cmd_h, 2);
+  gpio_put(PIN_IOX_SSn, 1);
+  if ((a != 2) || (b != 2))
     return -1;
-  if (2 != spi_write_blocking(SPI_IOX, cmd_h, 2))
-    return -2;
   return 0;
 }
 
@@ -539,6 +558,27 @@ int32_t iox_config_all(uint32_t all) {
   return iox_writecmd_all(IOX_CMD_CFG, all);
 }
 
+// check if IOX SPI works
+// the way we do this is, we confirm we can write correctly
+// to a register in the IOX (RDINV chosen)
+int iox_check() {
+  iox_writecmd_all(IOX_CMD_RDINV, 0x5A5A);
+  unsigned rdinv = iox_readcmd_all(IOX_CMD_RDINV);
+  if (rdinv != 0x5A5A) {
+    iox_spi_speed = 0;
+    return -1;
+  }
+  iox_writecmd_all(IOX_CMD_RDINV, 0xA5A5);
+  rdinv = iox_readcmd_all(IOX_CMD_RDINV);
+  if (rdinv != 0xA5A5) {
+    iox_spi_speed = 0;
+    return -1;
+  }
+  iox_writecmd_all(IOX_CMD_RDINV, 0);
+  return 0;
+}
+
+
 const char *get_pin_location(unsigned pin)
 {
   if (pin < 32)
@@ -562,4 +602,46 @@ const char *get_pin_name(unsigned pin)
     return pico_signames[pin - 0x40];
   else
     return 0;
+}
+
+#define ADC_DO_CONV_START     ((0xA)<<2)
+#define ADC_DO_STANDBY        ((0xB)<<2)
+#define ADC_DO_SHUTDOWN       ((0xC)<<2)
+#define ADC_DO_SHUTDOWN_FULL  ((0xD)<<2)
+#define ADC_DO_RESET          ((0xE)<<2)
+#define ADC_DO_READ(a)        ((((a)&0xF)<<2)|1)
+#define ADC_DO_WRITE_BURST(a) ((((a)&0xF)<<2)|2)
+#define ADC_DO_READ_BURST(a)  ((((a)&0xF)<<2)|3)
+
+extern int adc_spi_speed;
+int adc_probe()
+{
+  // the ADC can have one of 4 addresses, which'll get sent in reply to 
+  // the 1st byte
+  if (adc_spi_speed < 1000)
+    return -1;
+  if (spi_get_baudrate(SPI_ADC) != adc_spi_speed)
+    spi_set_baudrate(SPI_ADC, adc_spi_speed);
+  // attempt all 4 possible addresses with a dummy command
+  uint8_t cmd, resp;
+  // to the command word, the response will be
+  // {0, 0, cmd[7], cmd[6], ~cmd[6], data_ready#, crc_en#, por_int#}
+  uint8_t expected_resp, cmp_mask = 0x38;
+  for (unsigned addr = 0; addr < 4; ++addr) {
+    cmd = (addr<<6)|ADC_DO_READ(0);
+    expected_resp = addr << 4;
+    if (! (addr & 1))
+      expected_resp |= 1 << 3;
+    resp = 0xff;
+    gpio_put(PIN_ADC_SSn, 0);
+    spi_write_read_blocking(SPI_ADC, &cmd, &resp, 1);
+    gpio_put(PIN_ADC_SSn, 1);
+#   ifdef DEBUG
+    printf ("ADC: addr %u: cmd=%02X resp=%02X exp_resp=%02X|mask=%02X\n", addr, cmd, resp, expected_resp, cmp_mask);
+#   endif
+    if ((resp & cmp_mask) == expected_resp)
+      return addr;
+  }
+  adc_spi_speed = 0;
+  return -1;
 }

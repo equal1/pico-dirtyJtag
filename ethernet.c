@@ -36,6 +36,7 @@ static uint8_t dhcp_buf[ETH_BUFFER_SIZE];
 static struct {
   uint8_t buf[ETH_BUFFER_SIZE];
   uint32_t size;
+  uint32_t sender_crc32, receiver_crc32;
 } dbgsrv_in, dbgsrv_out;
 
 // interface setup
@@ -67,7 +68,7 @@ uint8_t eth_link_state = 0xff;
 
 // text stuff
 static char eth_macaddr[18];
-static char w5500_err[80];
+static char eth_err[80];
 static char eth_own_ip[] = "111.111.111.111";
 static char eth_listen_port[] = "111.111.111.111:12345", 
             eth_connected_port[] = "222.222.222.222:23456";
@@ -80,6 +81,12 @@ static void w5500_dma_init();
 // connected (-1: err), MAC, hostname, server listening, client connected
 // if connected==-1. "hostname" is the error
 void notify_ip_config(int, const char*, const char*, const char*, const char*);
+
+static void eth_crc32_init();
+void eth_crc32_start(const char *buf, unsigned len, uint32_t *destination);
+static void eth_crc32_wait();
+
+static int client_uses_crc32;
 
 int eth_init(uint64_t uid)
 {
@@ -100,6 +107,9 @@ int eth_init(uint64_t uid)
   // initial configuration of the W5500 interface
   w5500_dma_init();
   w5500_spi_init();
+
+  eth_crc32_init();
+
   // only keep the LED on when we have the IP connection up
   set_led(0);
   // pass the MAC and the hostname to whoami()
@@ -154,10 +164,12 @@ static int is_socket_state_transient(int ss)
   return 0;
 }
 
-static unsigned w5500_spi_speed = FREQ_W5500_KHZ * 1000;
+extern int eth_spi_speed;
+
+#define RESEND_RESPONSE_MAGIC 0x137f5aa5
+#define RESEND_COMMAND_MAGIC  0x7f5aa513
 
 void eth_task() {
-  static const uint8_t memsize[2][8] = {{8, 0, 0, 0, 0, 0, 0, 0}, {8, 0, 0, 0, 0, 0, 0, 0}};
   int tmp;
   int sock_state = -1;
 
@@ -168,12 +180,12 @@ void eth_task() {
 
   case ETH_NONE:
     if (w5500_init()) {
-      strcpy (w5500_err, "W5500 init failed");
+      strcpy (eth_err, "W5500 init failed");
     fatal_error:
       eth_status = ETH_FATAL;
       add_repeating_timer_ms (100, every_100ms, 0, &error_timer);
-      printf ("eth: %s\n", w5500_err);
-      notify_ip_config(-1, eth_macaddr, w5500_err, 0, 0);
+      printf ("eth: %s\n", eth_err);
+      notify_ip_config(-1, eth_macaddr, eth_err, 0, 0);
       return;
     }
     network_init();
@@ -212,7 +224,7 @@ void eth_task() {
 			break;
 		case DHCP_FAILED:
 			cancel_repeating_timer (&dhcp_timer);
-      strcpy (w5500_err, "cannot get IP address");
+      strcpy (eth_err, "cannot get IP address");
       goto fatal_error;
 			return;
 		default:
@@ -229,11 +241,11 @@ void eth_task() {
     if (is_socket_state_transient(sock_state))
       return;
     if (sock_state != SOCK_CLOSED) {
-      strcpy(w5500_err, "in ETH_READY, sock_state not CLOSED");
+      strcpy(eth_err, "in ETH_READY, sock_state not CLOSED");
       goto fatal_error;
     }
     if(socket(SOCKET_DBGSRV, Sn_MR_TCP, PORT_DBGSRV, 0x00) != SOCKET_DBGSRV) {
-      strcpy(w5500_err, "in ETH_READY, socket() failed");
+      strcpy(eth_err, "in ETH_READY, socket() failed");
       goto fatal_error;
     }
     //printf("eth: opened server socket\n");
@@ -249,12 +261,14 @@ void eth_task() {
     if (is_socket_state_transient(sock_state))
       return;
     if (sock_state != SOCK_INIT) {
-      strcpy(w5500_err, "in ETH_HAVE_SOCKET, sock_state not INIT");
-      goto fatal_error;
+      // at high SPI speeds, we might end up with transitory states in the socket state - 
+      // - ignore these altogether
+      return;
     }
     if(listen(SOCKET_DBGSRV) != SOCK_OK) {
-      strcpy(w5500_err, "in ETH_HAVE_SOCKET, listen() failed");
-      goto fatal_error;
+      // at high SPI speeds, we might end up with transitory states in the socket state - 
+      // - ignore these altogether
+      return;
     }
     //printf("eth: listening on %s:%u\n", eth_own_ip, PORT_DBGSRV);
     notify_ip_config(1, eth_macaddr, eth_hostname, eth_listen_port, 0);
@@ -298,8 +312,9 @@ void eth_task() {
       return;
     }
     if (sock_state != SOCK_ESTABLISHED) {
-      strcpy(w5500_err, "in ETH_CONNECTING, sock_state not ESTABLISHED, CLOSE_WAIT or CLOSED");
-      goto fatal_error;
+      // at high SPI speeds, we might end up with transitory states in the socket state - 
+      // - ignore these altogether
+      return;
     }
     if(getSn_IR(SOCKET_DBGSRV) & Sn_IR_CON) {
       uint8_t cliip[4];
@@ -316,6 +331,8 @@ void eth_task() {
       puts ("eth: accepted connection from unknown source!!!");
     }
     eth_status = ETH_CONNECTED;
+    // reset the crc32 capability to unknown
+    client_uses_crc32 = -1;
     // fall-through
 
   case ETH_CONNECTED:
@@ -337,8 +354,9 @@ void eth_task() {
       return;
     }
     if (sock_state != SOCK_ESTABLISHED) {
-      strcpy(w5500_err, "in ETH_RECEIVING, sock_state not ESTABLISHED, CLOSE_WAIT or CLOSED");
-      goto fatal_error;
+      // at high SPI speeds, we might end up with transitory states in the socket state - 
+      // - ignore these altogether
+      return;
     }
     // see if there's any data to receive
     int len = getSn_RX_RSR(SOCKET_DBGSRV);
@@ -359,6 +377,7 @@ void eth_task() {
 
   case ETH_RECEIVING:
     dbgsrv_in.size = recv(SOCKET_DBGSRV, dbgsrv_in.buf, len);
+
     if (((int)dbgsrv_in.size < 0) || (len != dbgsrv_in.size)) {
       if ((int)dbgsrv_in.size < 0)
         puts ("eth: receive error, disconnecting client...");
@@ -371,11 +390,65 @@ void eth_task() {
     // good stuff; see what the client expects
     uint32_t payload_size = *(uint32_t*)&dbgsrv_in.buf[0];
     uint32_t result_size = *(uint32_t*)&dbgsrv_in.buf[4];
-    if (payload_size != (dbgsrv_in.size - 8)) {
-      printf ("eth: protocol error (payload: claimed %d, actual %d; expected %d), disconnecting client...\n", payload_size, dbgsrv_in.size - 8, result_size);
-      goto do_close_socket;
-    } // else
-      // printf ("eth: received packet, payload size=%u; expected response of size%c=%u\n", payload_size, ((int32_t)result_size < 0)?'<':'=', result_size & ~0x80000000);
+    // check if the client is using crc32, on the first 
+    if (client_uses_crc32 == -1) {
+      if (dbgsrv_in.size == payload_size + 12) {
+        puts("eth: client uses crc32...");
+        client_uses_crc32 = 1;
+      }
+      else if (dbgsrv_in.size == payload_size + 8) {
+        puts("eth: client doesn't use crc32...");
+        client_uses_crc32 = 0;
+      }
+      else { // can't get a re-send request on the first packet!
+        puts("eth: protocol error, disconnecting client...");
+        goto do_close_socket;
+      }
+    }
+    // if we're using crc32, check the crc32
+    if (client_uses_crc32) {
+      // check for re-send requests
+      if ((dbgsrv_in.size == 4) && (*(uint32_t*)dbgsrv_in.buf == RESEND_RESPONSE_MAGIC)) {
+        puts("eth: client wants the last response re-sent...");
+        eth_status = ETH_WAITING_REPLY;
+        break;
+      }
+      // check for protocol violations
+      if (dbgsrv_in.size != payload_size + 12) {
+        printf("eth: protocol error (packet:%ub; payload=%db, expected%ub); disconnecting client...\n",
+               dbgsrv_in.size, payload_size, 12+payload_size);
+        goto do_close_socket;
+      }
+      // extract the crc32 from the input packet
+      if (! (((uint32_t)&dbgsrv_in.buf[payload_size + 8]) & 3))
+        dbgsrv_in.sender_crc32 = *(uint32_t*)&dbgsrv_in.buf[payload_size + 8];
+      else
+        memcpy(&dbgsrv_in.sender_crc32, &dbgsrv_in.buf[payload_size + 8], 4);
+      eth_crc32_start(dbgsrv_in.buf, payload_size + 8, &dbgsrv_in.receiver_crc32);
+      eth_crc32_wait();
+      if (dbgsrv_in.sender_crc32 != dbgsrv_in.receiver_crc32) {
+        printf("eth: packet crc error, got %08X, computed %08X; requesting re-send\n", dbgsrv_in.sender_crc32, dbgsrv_in.receiver_crc32);
+        // send a re-request packet
+        *(uint32_t*)&dbgsrv_out.buf = RESEND_COMMAND_MAGIC;
+        unsigned sent = send(SOCKET_DBGSRV, dbgsrv_out.buf, 4);
+        if (sent != 4) {
+          puts("eth: failed to send send packet re-request!!!");
+          strcpy(eth_err, "send() failed");
+          goto fatal_error;
+        }
+        eth_status = ETH_RECEIVING;
+        break;
+      }
+    } 
+    // not using crc32
+    else {
+      // check for protocol violations
+      if (dbgsrv_in.size != payload_size + 8) {
+        printf("eth: protocol error (packet:%ub; payload=%db, expected%ub); disconnecting client...\n",
+               dbgsrv_in.size, payload_size, 8+payload_size);
+        goto do_close_socket;
+      }
+    }
     // run the commands anyway before sending a reply
     // the protocol is ping-pong - we always send a reply, even if that's zero-sized
     eth_status = ETH_JTAG_RUNNING;
@@ -403,8 +476,9 @@ void eth_task() {
       return;
     }
     if (sock_state != SOCK_ESTABLISHED) {
-      strcpy(w5500_err, "in ETH_RECEIVING, sock_state not ESTABLISHED, CLOSE_WAIT or CLOSED");
-      goto fatal_error;
+      // at high SPI speeds, we might end up with transitory states in the socket state - 
+      // - ignore these altogether
+      return;
     }
     // if we produced the expected data OR no data was expected OR
     if (dbgsrv_out.size) {
@@ -464,15 +538,64 @@ void eth_task() {
       close(SOCKET_DBGSRV);
       return;
     }
-    strcpy(w5500_err, "in ETH_DISCONNECTING, sock_state not CLOSE_WAIT or CLOSED");
-    goto fatal_error;
+    // at high SPI speeds, we might end up with transitory states in the socket state - 
+    // - ignore these altogether
+    return;
 
   default:
-    sprintf(w5500_err, "Invalid ethernet state %u", eth_status);
+    sprintf(eth_err, "Invalid ethernet state %u", eth_status);
     goto fatal_error;
   }
 }
 
+// crc32
+
+#define CRC32_INIT ((uint32_t)-1l)
+static int eth_crc32_dmach_idx;
+static dma_channel_config eth_crc32_dmach;
+static uint32_t *eth_crc32_destination = 0;
+
+void eth_crc32_init()
+{
+  // configure the crc32 DMA (alternate, "reversed" shift direction)
+  eth_crc32_dmach_idx = dma_claim_unused_channel(true);
+  eth_crc32_dmach = dma_channel_get_default_config(eth_crc32_dmach_idx);
+  channel_config_set_transfer_data_size(&eth_crc32_dmach, DMA_SIZE_8);
+  channel_config_set_read_increment(&eth_crc32_dmach, true);
+  channel_config_set_write_increment(&eth_crc32_dmach, false);
+  dma_sniffer_set_output_reverse_enabled(true);
+  dma_sniffer_enable(eth_crc32_dmach_idx, DMA_SNIFF_CTRL_CALC_VALUE_CRC32R, true);
+  dma_sniffer_set_data_accumulator(CRC32_INIT);
+}
+
+void eth_crc32_start(const char *buf, unsigned len, uint32_t *destination)
+{
+  if (eth_crc32_destination) {
+    puts("started a CRC32 while another was running!");
+    return;
+  }
+  eth_crc32_destination = destination;
+  // configure DMA and kick off
+  static uint8_t dummy;
+  dma_channel_configure(eth_crc32_dmach_idx, &eth_crc32_dmach,
+                        &dummy, buf, len,
+                        true);
+}
+
+void eth_crc32_wait()
+{
+  // don't do anything, if no transfer is in progress
+  if (! eth_crc32_destination)
+    return;
+  // wait for the transfer, and record the crc32
+  dma_channel_wait_for_finish_blocking(eth_crc32_dmach_idx);
+  *eth_crc32_destination = dma_sniffer_get_data_accumulator();
+  // reset accumulator and destination pointer
+  dma_sniffer_set_data_accumulator(CRC32_INIT);
+  eth_crc32_destination = 0;
+}
+
+// this only sees data that was crc32-checked already
 int fetch_eth_data(char *dest)
 {
   if (eth_status != ETH_JTAG_RUNNING)
@@ -491,12 +614,25 @@ int submit_eth_data(const char *src, unsigned n)
   // only accept replies in JTAG_RUNNING mode
   if (eth_status != ETH_JTAG_RUNNING)
     return 0;
+  // limit the response size, if response size was open-ended
+  int expected = *(uint32_t*)&dbgsrv_in.buf[4];
+  if (expected < 0) {
+    expected &= ~0x80000000;
+    // if we have more data, trim the response
+    if (n > expected)
+      n = expected;
+    // patch the input buffer to the number of bytes we actually produced
+    // (note we already checked its, so patching's fine)
+    *(uint32_t*)&dbgsrv_in.buf[4] = n;
+  }
+  // if the response size is wrong, eth_task() will pick this up
   dbgsrv_out.size = 4+n;
-  *(uint32_t*)&dbgsrv_out.buf[0] = 4+n;
+  *(uint32_t*)&dbgsrv_out.buf[0] = n;
   if (n > 0) {
     memcpy(&dbgsrv_out.buf[4], src, n);
     //printf ("eth: sending %u reply bytes\n", n);
   }
+  // 
   // move on the ethernet state machine
   eth_status = ETH_WAITING_REPLY;
   return n;
@@ -539,54 +675,51 @@ static void w5500_block_write(uint8_t*, uint16_t);
 void w5500_spi_init()
 {
   // configure CS#
-  gpio_init(PIN_W5500_CSn);
-  gpio_set_dir(PIN_W5500_CSn, GPIO_OUT);
-  gpio_put(PIN_W5500_CSn, 1); // initially de-selected
-  bi_decl(bi_1pin_with_name(PIN_W5500_CSn, "W5500_CS#"));
+  gpio_init(PIN_ETH_CSn);
+  gpio_set_dir(PIN_ETH_CSn, GPIO_OUT);
+  gpio_put(PIN_ETH_CSn, 1); // initially de-selected
+  bi_decl(bi_1pin_with_name(PIN_ETH_CSn, "W5500_CS#"));
   // configure RST#
-  gpio_init(PIN_W5500_RSTn);
-  gpio_set_dir(PIN_W5500_RSTn, GPIO_OUT);
-  gpio_put(PIN_W5500_RSTn, 0);
-  bi_decl(bi_1pin_with_name(PIN_W5500_RSTn, "W5500_RST#"));
+  gpio_init(PIN_ETH_RSTn);
+  gpio_set_dir(PIN_ETH_RSTn, GPIO_OUT);
+  gpio_put(PIN_ETH_RSTn, 0);
+  bi_decl(bi_1pin_with_name(PIN_ETH_RSTn, "W5500_RST#"));
   // configure INT#
-  gpio_init(PIN_W5500_INTn);
-  gpio_set_dir(PIN_W5500_INTn, GPIO_IN);
-  gpio_put(PIN_W5500_INTn, 0);
-  bi_decl(bi_1pin_with_name(PIN_W5500_INTn, "W5500_INT#"));
-  gpio_set_irq_enabled_with_callback(PIN_W5500_INTn, GPIO_IRQ_EDGE_FALL, true, w5500_on_irq);
-  // configure SPI itself - mode 3
-  spi_init(SPI_W5500, w5500_spi_speed);
-  spi_set_format (SPI_W5500, 8, 1, 1, 0);
+  gpio_init(PIN_ETH_INTn);
+  gpio_set_dir(PIN_ETH_INTn, GPIO_IN);
+  gpio_put(PIN_ETH_INTn, 0);
+  bi_decl(bi_1pin_with_name(PIN_ETH_INTn, "W5500_INT#"));
+  //gpio_set_irq_enabled_with_callback(PIN_W5500_INTn, GPIO_IRQ_EDGE_FALL, true, w5500_on_irq);
+  // configure SPI itself - mode 0
+  spi_init(SPI_ETH, FREQ_ETH_KHZ * 1000);
+  eth_spi_speed = spi_get_baudrate(SPI_ETH);
+  spi_set_format (SPI_ETH, 8, 0, 0, 0);
   // configure the SPI pins
-  gpio_set_function(PIN_W5500_SCK, GPIO_FUNC_SPI);
-  gpio_set_function(PIN_W5500_MOSI, GPIO_FUNC_SPI);
-  gpio_set_function(PIN_W5500_MISO, GPIO_FUNC_SPI);
-  bi_decl(bi_3pins_with_func(PIN_W5500_MISO, PIN_W5500_MOSI, PIN_W5500_SCK, GPIO_FUNC_SPI));
+  gpio_set_function(PIN_ETH_SCK, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_ETH_MOSI, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_ETH_MISO, GPIO_FUNC_SPI);
+  bi_decl(bi_3pins_with_func(PIN_ETH_MISO, PIN_ETH_MOSI, PIN_ETH_SCK, GPIO_FUNC_SPI));
 }
+
 
 static int w5500_set_spi_speed(unsigned speed) {
   // re-configure the SPI speed
-  spi_set_baudrate(SPI_W5500, speed);
-  w5500_spi_speed = spi_get_baudrate(SPI_W5500);
-  //printf ("W5500 SPI: trying %u.%03uMHz (actually %u.%3uMHz)... ",
-  //        (speed+500)/1000000, ((speed+500)%1000000)/1000,
-  //        (w5500_spi_speed+500)/1000000, ((w5500_spi_speed+500)%1000000)/1000);
+  spi_set_baudrate(SPI_ETH, speed);
+  eth_spi_speed = spi_get_baudrate(SPI_ETH);
   // pulse reset
-  gpio_put(PIN_W5500_RSTn, 0);
-  sleep_ms(100);
-  gpio_put(PIN_W5500_RSTn, 1);
+  gpio_put(PIN_ETH_RSTn, 0); sleep_ms(1);
+  gpio_put(PIN_ETH_RSTn, 1); sleep_ms(1);
   // initialize the chip
-  ctlwizchip (CW_RESET_WIZCHIP, 0);
+  ctlwizchip (CW_RESET_WIZCHIP, 0); sleep_ms(1);
 	static const uint8_t socks_sizes[2][8] = {
     // maybe optimize later?
     { 2, 2, 2, 2, 2, 2, 2, 2 }, 
     { 2, 2, 2, 2, 2, 2, 2, 2 }
   };
-  ctlwizchip (CW_INIT_WIZCHIP, (void*)socks_sizes);
-  ctlwizchip (CW_RESET_PHY, 0);
+  ctlwizchip (CW_INIT_WIZCHIP, (void*)socks_sizes); sleep_ms(1);
+  ctlwizchip (CW_RESET_PHY, 0); sleep_ms(1);
   // check if communication works
   int ok = getVERSIONR() == 0x04;
-  //puts (ok ? "works" : "nope");
   return ok;
 }
 
@@ -601,42 +734,21 @@ int w5500_init()
   unsigned version = 0;
   // try to find the maximum frequency at which the chip would talk to us
   unsigned last_bad_spi_speed = 0;
-  while (! w5500_set_spi_speed(w5500_spi_speed)) {
-    last_bad_spi_speed = w5500_spi_speed;
-    w5500_spi_speed >>= 1;
-    // give up if we weren't able to talk to the W5500 even at 1MHz
-    // (this is probably a regular Pico)
-    if (w5500_spi_speed < 1000000)
+  while (! w5500_set_spi_speed(eth_spi_speed)) {
+    // if we're >= 10MHz, decrease by 1MHz
+    if (eth_spi_speed >= 10000000)
+      eth_spi_speed -= 1000000;
+    // if we're >= 1MHz, decrease by 0.5MHz
+    else if (eth_spi_speed >= 1000000)
+      eth_spi_speed -= 500000;
+    // if we can't connect even at 1MHz, give up
+    else {
+      eth_spi_speed = 0;
       return -4;
-  }
-  // if we didn't succeed on the first try
-  if (last_bad_spi_speed) {
-    unsigned last_good_spi_speed = 0;
-    // try to up the frequency until we find the sweet spot
-    while ((last_bad_spi_speed - last_good_spi_speed) > 100000) {
-      w5500_spi_speed = (last_bad_spi_speed + last_good_spi_speed) / 2;
-      if (w5500_set_spi_speed(w5500_spi_speed)) {
-        if (w5500_spi_speed == last_good_spi_speed)
-          break;
-        //printf ("last_good=%u.%03uMHz\n", (w5500_spi_speed+500)/1000000, ((w5500_spi_speed+500)%1000000)/1000);
-        last_good_spi_speed = w5500_spi_speed;
-      }
-      else {
-        if (w5500_spi_speed == last_bad_spi_speed)
-          break;
-        //printf ("last_bad=%u.%03uMHz\n", (w5500_spi_speed+500)/1000000, ((w5500_spi_speed+500)%1000000)/1000);
-        last_bad_spi_speed = w5500_spi_speed;
-      }
     }
-    if (w5500_spi_speed != last_good_spi_speed)
-      w5500_set_spi_speed(last_good_spi_speed);
   }
   // grab the initial PHY link
   ctlwizchip (CW_GET_PHYLINK, (void *)&eth_link_state);
-  w5500_spi_speed = spi_get_baudrate(SPI_W5500) + 500; // round to nearest KHz
-  printf ("Ethernet chip: %s; MAC: %s; SPI frequency = %u.%03uMHz\n\n",
-          dhcp_buf, eth_macaddr,
-          (w5500_spi_speed/1000000), (w5500_spi_speed%1000000)/1000);
   return 0;
 }
 
@@ -964,7 +1076,7 @@ void on_dhcp_conflict(void)
 {
   printf ("DHCP: address conflict; aborting network\n");
   network_init();
-  strcpy (w5500_err, "DHCP: conflict");
+  strcpy (eth_err, "DHCP: conflict");
   eth_status = ETH_FATAL;
 }
 
@@ -1049,80 +1161,93 @@ void w5500_on_irq(uint gpio, uint32_t events)
 
 void w5500_select(void)
 {
-  gpio_put(PIN_W5500_CSn, 0);
+  // reload the SPI settings, if needed
+  if (spi_get_baudrate(SPI_ETH) != eth_spi_speed)
+    spi_set_baudrate(SPI_ETH, eth_spi_speed);
+  gpio_put(PIN_ETH_CSn, 0);
 }
 
 void w5500_deselect(void)
 {
-  gpio_put(PIN_W5500_CSn, 1);
+  gpio_put(PIN_ETH_CSn, 1);
 }
 
 uint8_t w5500_read(void)
 {
   uint8_t rx_data = 0;
   uint8_t tx_data = 0xFF;
-  spi_read_blocking(SPI_W5500, tx_data, &rx_data, 1);
+  spi_read_blocking(SPI_ETH, tx_data, &rx_data, 1);
   return rx_data;
 }
 
 void w5500_write(uint8_t tx_data)
 {
-  spi_write_blocking(SPI_W5500, &tx_data, 1);
+  spi_write_blocking(SPI_ETH, &tx_data, 1);
 }
 
-static uint w5500_dma_tx, w5500_dma_rx;
-static dma_channel_config w5500_dma_tx_cfg, w5500_dma_rx_cfg;
+static uint eth_dma_tx, eth_dma_rx;
+static dma_channel_config eth_dma_tx_cfg, eth_dma_rx_cfg;
 
 void w5500_dma_init()
 {
-  w5500_dma_tx = dma_claim_unused_channel(true);
-  w5500_dma_tx_cfg = dma_channel_get_default_config(w5500_dma_tx);
-  channel_config_set_transfer_data_size(&w5500_dma_tx_cfg, DMA_SIZE_8);
-  channel_config_set_dreq(&w5500_dma_tx_cfg, spi_get_dreq(SPI_W5500, true));
-  channel_config_set_write_increment(&w5500_dma_tx_cfg, false);
-  w5500_dma_rx = dma_claim_unused_channel(true);
-  w5500_dma_rx_cfg = dma_channel_get_default_config(w5500_dma_rx);
-  channel_config_set_transfer_data_size(&w5500_dma_rx_cfg, DMA_SIZE_8);
-  channel_config_set_dreq(&w5500_dma_rx_cfg, spi_get_dreq(SPI_W5500, false));
-  channel_config_set_read_increment(&w5500_dma_rx_cfg, false);
+  eth_dma_tx = dma_claim_unused_channel(true);
+  eth_dma_tx_cfg = dma_channel_get_default_config(eth_dma_tx);
+  channel_config_set_transfer_data_size(&eth_dma_tx_cfg, DMA_SIZE_8);
+  channel_config_set_dreq(&eth_dma_tx_cfg, spi_get_dreq(SPI_ETH, true));
+  channel_config_set_write_increment(&eth_dma_tx_cfg, false);
+  eth_dma_rx = dma_claim_unused_channel(true);
+  eth_dma_rx_cfg = dma_channel_get_default_config(eth_dma_rx);
+  channel_config_set_transfer_data_size(&eth_dma_rx_cfg, DMA_SIZE_8);
+  channel_config_set_dreq(&eth_dma_rx_cfg, spi_get_dreq(SPI_ETH, false));
+  channel_config_set_read_increment(&eth_dma_rx_cfg, false);
 }
 
 void w5500_block_read(uint8_t *pBuf, uint16_t len)
 {
+  // use spi_read_blocking() for small blocks
+  if (len <= 16) {
+    spi_read_blocking(SPI_ETH, 0xFF, pBuf, len);
+    return;
+  }
+  // DMAs for larger transfers
   static const uint8_t dummy_data = 0xFF;
-
-  channel_config_set_read_increment(&w5500_dma_tx_cfg, false);
-  dma_channel_configure(w5500_dma_tx, &w5500_dma_tx_cfg,
-                        &spi_get_hw(SPI_W5500)->dr, // write address
+  channel_config_set_read_increment(&eth_dma_tx_cfg, false);
+  dma_channel_configure(eth_dma_tx, &eth_dma_tx_cfg,
+                        &spi_get_hw(SPI_ETH)->dr, // write address
                         &dummy_data,                // read address
                         len,                        // element count (each element is of size transfer_data_size)
                         false);                     // don't start yet
-  channel_config_set_write_increment(&w5500_dma_rx_cfg, true);
-  dma_channel_configure(w5500_dma_rx, &w5500_dma_rx_cfg,
+  channel_config_set_write_increment(&eth_dma_rx_cfg, true);
+  dma_channel_configure(eth_dma_rx, &eth_dma_rx_cfg,
                         pBuf,                       // write address
-                        &spi_get_hw(SPI_W5500)->dr, // read address
+                        &spi_get_hw(SPI_ETH)->dr, // read address
                         len,                        // element count (each element is of size transfer_data_size)
                         false);                     // don't start yet
-  dma_start_channel_mask((1u << w5500_dma_tx) | (1u << w5500_dma_rx));
-  dma_channel_wait_for_finish_blocking(w5500_dma_rx);
+  dma_start_channel_mask((1u << eth_dma_tx) | (1u << eth_dma_rx));
+  dma_channel_wait_for_finish_blocking(eth_dma_rx);
 }
 
 void w5500_block_write(uint8_t *pBuf, uint16_t len)
 {
+  // use spi_read_blocking() for small blocks
+  if (len <= 16) {
+    spi_write_blocking(SPI_ETH, pBuf, len);
+    return;
+  }
+  // DMAs for larger transfers
   static uint8_t dummy_data;
-
-  channel_config_set_read_increment(&w5500_dma_tx_cfg, true);
-  dma_channel_configure(w5500_dma_tx, &w5500_dma_tx_cfg,
-                        &spi_get_hw(SPI_W5500)->dr, // write address
+  channel_config_set_read_increment(&eth_dma_tx_cfg, true);
+  dma_channel_configure(eth_dma_tx, &eth_dma_tx_cfg,
+                        &spi_get_hw(SPI_ETH)->dr, // write address
                         pBuf,                       // read address
                         len,                        // element count (each element is of size transfer_data_size)
                         false);                     // don't start yet
-  channel_config_set_write_increment(&w5500_dma_rx_cfg, false);
-  dma_channel_configure(w5500_dma_rx, &w5500_dma_rx_cfg,
+  channel_config_set_write_increment(&eth_dma_rx_cfg, false);
+  dma_channel_configure(eth_dma_rx, &eth_dma_rx_cfg,
                         &dummy_data,                // write address
-                        &spi_get_hw(SPI_W5500)->dr, // read address
+                        &spi_get_hw(SPI_ETH)->dr, // read address
                         len,                        // element count (each element is of size transfer_data_size)
                         false);                     // don't start yet
-  dma_start_channel_mask((1u << w5500_dma_tx) | (1u << w5500_dma_rx));
-  dma_channel_wait_for_finish_blocking(w5500_dma_rx);
+  dma_start_channel_mask((1u << eth_dma_tx) | (1u << eth_dma_rx));
+  dma_channel_wait_for_finish_blocking(eth_dma_rx);
 }
