@@ -71,7 +71,7 @@
 #define PIN_ADC_SSn  26 // GP26
 
 #define IOX_NAME     "XRA1403"
-#define FREQ_IOX_KHZ 16000
+#define FREQ_IOX_KHZ 26000
 #define SPI_IOX      spi1
 #define PIN_IOX_SCK  PIN_SPI1_SCK
 #define PIN_IOX_MOSI PIN_SPI1_MOSI
@@ -116,39 +116,6 @@
 #undef USB_CDC_UART_BRIDGE
 #define USB_CDC_UART_BRIDGE  0
 #define USB_CDC_SPI_BRIDGE  0
-
-#define PINIDX_A5_GPIO0
-#define PINIDX_A5_GPIO1
-#define PINIDX_A5_GPIO2
-#define PINIDX_A5_GPIO3
-#define PINIDX_A5_GPIO4
-#define PINIDX_A5_GPIO5
-#define PINIDX_A5_GPIO6
-#define PINIDX_A5_GPIO7
-#define PINIDX_A5_GPIO8
-#define PINIDX_A5_GPIO9
-#define PINIDX_A5_GPIO10
-#define PINIDX_A5_GPIO11
-#define PINIDX_A5_GPIO12
-#define PINIDX_A5_GPIO13
-#define PINIDX_A5_GPIO14
-#define PINIDX_A5_GPIO15
-#define PINIDX_A5_GPIO16
-#define PINIDX_A5_SCANEN
-
-
-enum {
-  SPI_USER_NONE = 0,
-  SPI_USER_W5500,
-  SPI_USER_IOX,
-  SPI_USER_ADC,
-  SPI_USER_A5
-};
-
-enum {
-  SPI0_W5500 = 0,
-  SPI0_ADC
-};
 
 #else
 # error Only the e1 jtag supported on this tree

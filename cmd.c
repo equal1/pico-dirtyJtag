@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include <pico/stdlib.h>
+#include <pico/binary_info.h>
 #include <pico/bootrom.h>
 #include <hardware/clocks.h>
 #include <hardware/gpio.h>
@@ -58,10 +59,6 @@ enum CommandIdentifier {
   CMD_PINCFG_SET_ALL = 0x0d, // DirtyJTAG extension: configure all pins
   CMD_PINCFG_SET = 0x0e, // DirtyJTAG extension: configure a specific pin (or all pins)
   CMD_PINCFG_GET = 0x0f, // DirtyJTAG extension: configure a specific pin
-  CMD_PINS_SET = 0x10, // DirtyJTAG extension: set all pins' output value
-  CMD_PINS_GET = 0x11, // DirtyJTAG extension: get all pins' input value
-  CMD_PIN_SET = 0x12, // DirtyJTAG extension: set a single pin's output value
-  CMD_PIN_GET = 0x13, // DirtyJTAG extension: read a single pin's input value
 };
 
 // pincfg get/set
@@ -114,16 +111,13 @@ enum CommandIdentifier {
 #define PINCFG_FN_USB  (   9<<8)
 #define PINCFG_FN_NULL (0x1f<<8)
 
-//#
-
-
 // GPIOs on the PICO itself
 static const uint32_t pico_pins = 
   (1 << PIN_RST) | (1 << PIN_A5_CLK) | // a5 reset#, sysclk
   (1 << PIN_TMS) | (1 << PIN_TCK) | (1 << PIN_TDO) | (1 << PIN_TDI) |  // a5 jtag signals
   (1 << PIN_A5_UART_TX) | (1 << PIN_A5_UART_RX) | // a5 gpio 0, 1
   (1 << PIN_A5_SSn) | (1 << PIN_A5_SCK) | (1 << PIN_A5_MOSI) | (1 << PIN_A5_MISO) | // a5 gpio 2..5
-  (1 << PIN_A5_GPIO6) | (1 << PIN_A5_GPIO10) | // a5 gpio 6, 7, 10
+  (1 << PIN_A5_GPIO6) | (1 << PIN_A5_GPIO10) | // a5 gpio 6,10
   (1 << PIN_A5_SCANIN) | (1 << PIN_A5_SCANOUT) | (1 << PIN_A5_SCANEN); // a5 scan*
 // GPIOs on the IOX
 static const uint32_t iox_pins = 
@@ -194,12 +188,21 @@ enum SignalIdentifier {
   SIG_SRST = 1 << 6
 };
 
+int iox_get_pin_pullup(int);
+int iox_set_pin_pullup(int, int);
+int iox_get_pin_direction(int);
+int iox_set_pin_direction(int, int);
+int iox_get_pin_output(int); // this only tells you what the pin is trying to output
+int iox_set_pin_output(int, int);
+int iox_get_pin_value(int); // this tells you what's really on the pin
+
 unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
   unsigned cmdpos = 0, resppos = 0;
   const char *djtag_whoami();
   extern struct djtag_clk_s djtag_clocks;
   int n, m;
+  int do_iox_debug = 0;
   while (cmdpos < cmdsz) {
     uint8_t cmd = cmdbuf[cmdpos];
     if (cmd == CMD_STOP)
@@ -259,6 +262,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       break;
 
     case CMD_PINCFG_SET_ALL:
+      // we ignore direction and value
       int cfg = cmdbuf[cmdpos+1];
       static const char *drvstrs[4] = { "2mA", "4mA", "8mA", "12mA" };
       static const char *pulls[4] = { "none", "low", "high", "keep" };
@@ -297,12 +301,20 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       else if (pin < 0x40 + 16)
         valid_pin = iox_pins & (1u << (pin-0x40)),
         iox_pin = 1;
-      cmd_printf (" %c# @%u CMD_PINCFG_SET %u(%s.%s) SLEW=%s DRIVE=%s PULL=%s HYSTERESIS=%s\n", buf, cmdpos,
-        pin, loc ? loc : "???", sig ? sig : "???",
-        (cfg & PINCFG_SLEW_RATE_MASK) ? "fast" : "slow",
-        drvstrs[(cfg & PINCFG_DRIVE_STRENGTH_MASK) >> PINCFG_DRIVE_STRENGTH_POS],
-        pulls[(cfg & PINCFG_PULL_MASK) >> PINCFG_PULL_POS],
-        (cfg & PINCFG_HYSTERESIS_ON) ? "on" : "off" );
+      if (! iox_pin) {
+        cmd_printf (" %c# @%u CMD_PINCFG_SET %u(%s.%s) cfg=0x%02X: SLEW=%s DRIVE=%s PULL=%s HYSTERESIS=%s OUTPUT=%u\n", buf, cmdpos,
+          pin, loc ? loc : "???", sig ? sig : "???", cfg,
+          (cfg & PINCFG_SLEW_RATE_MASK) ? "fast" : "slow",
+          drvstrs[(cfg & PINCFG_DRIVE_STRENGTH_MASK) >> PINCFG_DRIVE_STRENGTH_POS],
+          pulls[(cfg & PINCFG_PULL_MASK) >> PINCFG_PULL_POS],
+          (cfg & PINCFG_HYSTERESIS_ON) ? "on" : "off",
+          (cfg >> PINCFG_VALUE_POS) & 1);
+      } else {
+        cmd_printf (" %c# @%u CMD_PINCFG_SET %u(%s.%s) cfg=0x%02X: PULL=%s VALUE=%u\n", buf, cmdpos,
+          pin, loc ? loc : "???", sig ? sig : "???", cfg,
+          pulls[(cfg & PINCFG_PULL_HIGH) >> PINCFG_PULL_POS],
+          (cfg >> PINCFG_VALUE_POS) & 1);
+      }
       if (valid_pin) {
         // PICO pins
         if(! iox_pin) {
@@ -314,11 +326,22 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
           gpio_set_pulls(pin, cfg & PINCFG_PULL_HIGH, cfg & PINCFG_PULL_LOW);
           // apply hysteresis
           gpio_set_input_hysteresis_enabled(pin, cfg & PINCFG_HYSTERESIS_ON);
+          // apply output value
+          // (this doesn't configure the pin as an output, so it only affects outputs)
+          gpio_put(pin, cfg & PINCFG_VALUE_HIGH);
         }
-        // IOX pins
+        // no such settings on the IOX (with the exception of pullup support)
+        // so only apply the value, and the pull-up (that, only if pulldown is not requested,
+        // since pull-down and bus-keeper functions are not available)
         else {
-          // todo
+          if (((cfg & PINCFG_PULL_MASK) == PINCFG_PULL_HIGH) || 
+              ((cfg & PINCFG_PULL_MASK) == PINCFG_PULL_NONE))
+          {
+            iox_set_pin_pullup(pin & 0xf, cfg & PINCFG_PULL_HIGH);
+          }
+          iox_set_pin_output(pin & 0xf, cfg & PINCFG_VALUE_HIGH);
         }
+        do_iox_debug = 1;
       }
       cmdpos += 3;
       break;
@@ -335,7 +358,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       else if (pin < 0x40 + 16)
         valid_pin = iox_pins & (1u << (pin-0x40)),
         iox_pin = 1;
-      cmd_printf (" %c# @%u CMD_PINCFG_GET %u(%s.%s) >1\n", buf, cmdpos,
+      cmd_printf (" %c# @%u CMD_PINCFG_GET %u(%s.%s) >2\n", buf, cmdpos,
         pin, loc ? loc : "???", sig ? sig : "???");
       unsigned result = 0;
       if (valid_pin) {
@@ -358,13 +381,17 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
           // get function (should be SIO for most, PIO0 for TDI/TDO/TMS/TCK, PIO1 for A5CLK)
           result |= (gpio_get_function(pin) << PINCFG_FN_POS) & PINCFG_FN_MASK;
         }
-        // IOX pins
+        // IOX pins don't have pulldown, slew rate, drive strength an hysteresis
         else {
-          // todo
-          result = 0;
+          result |= iox_get_pin_pullup(pin) ? PINCFG_PULL_HIGH : 0;
+          result |= (iox_get_pin_direction(pin) == GPIO_OUT) ? PINCFG_DIR_OUT : PINCFG_DIR_IN;
+          result |= iox_get_pin_value(pin) ? PINCFG_VALUE_HIGH : PINCFG_VALUE_LOW;
+          result |= (PINCFG_FN_NULL << PINCFG_FN_POS) & PINCFG_FN_MASK;
         }
       }
-      respbuf[resppos++] = result;
+      respbuf[resppos++] = result & 0xff;
+      respbuf[resppos++] = result >> 8;
+      cmd_printf ("       > %04X\n", result);
       cmdpos += 2;
       break;
 
@@ -463,6 +490,9 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       break;
     }
   }
+  void iox_debug();
+  if (do_iox_debug)
+    iox_debug();
   // protocol forbids responses that are a multiple of 64 bytes, sof if that was the case, add one extra byte
   // there is one obvious exception, the null response
   if (resppos && ! (resppos & 63)) {
@@ -487,7 +517,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
 #define IOX_CMD_SET 0x02 // set output value; defaults to 1(high)
 #define IOX_CMD_RDINV 0x04 // invert input polarity; defaults to 0(off)
 #define IOX_CMD_CFG 0x06 // config gpios; defaults to 1(inputs)
-//#define IOX_CMD_PULLUP 0x08 // pull-up enable; defaults to 0(off)
+#define IOX_CMD_PULLUP 0x08 // pull-up enable; defaults to 0(off)
 //#define IOX_CMD_INTEN 0x0a // interrupt enable; defaults to 0(off)
 //#define IOX_CMD_HIZ 0x0c // output Hi-Z; defaults to 0(driven outputs)
 //#define IOX_CMD_INTST 0x0e // interrupt status
@@ -509,6 +539,8 @@ int32_t iox_readcmd_all(unsigned cmd) {
     spi_set_baudrate(SPI_IOX, iox_spi_speed);
   gpio_put(PIN_IOX_SSn, 0);
   a = spi_write_read_blocking(SPI_IOX, cmd_l, resp_l, 2);
+  gpio_put(PIN_IOX_SSn, 1);
+  gpio_put(PIN_IOX_SSn, 0);
   b = spi_write_read_blocking(SPI_IOX, cmd_h, resp_h, 2);
   gpio_put(PIN_IOX_SSn, 1);
   if ((a != 2) || (b != 2))
@@ -530,6 +562,8 @@ int32_t iox_writecmd_all(unsigned cmd, uint32_t all) {
     spi_set_baudrate(SPI_IOX, iox_spi_speed);
   gpio_put(PIN_IOX_SSn, 0);
   a = spi_write_blocking(SPI_IOX, cmd_l, 2);
+  gpio_put(PIN_IOX_SSn, 1);
+  gpio_put(PIN_IOX_SSn, 0);
   b = spi_write_blocking(SPI_IOX, cmd_h, 2);
   gpio_put(PIN_IOX_SSn, 1);
   if ((a != 2) || (b != 2))
@@ -545,17 +579,83 @@ int32_t iox_get_all() {
 
 // set all the pins
 // (no effect for input pins)
-static uint32_t last_output_values = 0xffffffff;
-int32_t iox_set_all(uint32_t all) {
+static int last_output_values = -1;
+int iox_set_all(uint32_t all) {
   last_output_values = all;
   return iox_writecmd_all(IOX_CMD_SET, all);
 }
 
 // configure all the pins (0=out, 1=in)
-static uint32_t last_config_values = 0xffffffff;
-int32_t iox_config_all(uint32_t all) {
+static int last_config_values = -1;
+int iox_config_all(uint32_t all) {
   last_config_values = all;
   return iox_writecmd_all(IOX_CMD_CFG, all);
+}
+
+// configure pullups on all the pins (0=off, 1=pullup)
+static int last_pullup_values = -1;
+int iox_pullup_all(uint32_t all) {
+  last_pullup_values = all;
+  return iox_writecmd_all(IOX_CMD_PULLUP, all);
+}
+
+// we know last_{output,config,pullup}_values exist, since we configured them
+// UNLESS there's no IOX
+int iox_get_pin_pullup(int pin) {
+  if (iox_spi_speed < 1000)
+    return -1;
+  return (last_pullup_values >> (pin & 0xf)) & 1;
+}
+int iox_set_pin_pullup(int pin, int en) {
+  if (iox_spi_speed < 1000)
+    return -1;
+  int prev_val = last_pullup_values;
+  const int mask = 1 << (pin & 0xf);
+  if (en)
+    iox_pullup_all(last_pullup_values | mask);
+  else
+    iox_pullup_all(last_pullup_values & ~mask);
+  return prev_val & mask;
+}
+
+int iox_get_pin_direction(int pin) {
+  if (iox_spi_speed < 1000)
+    return -1;
+  return (last_config_values & (1 << (pin & 0xf))) ? GPIO_IN : GPIO_OUT;
+}
+int iox_set_pin_direction(int pin, int dir) {
+  if (iox_spi_speed < 1000)
+    return -1;
+  int prev_val = last_config_values;
+  const int mask = 1 << (pin & 0xf);
+  if (dir == GPIO_IN)
+    iox_config_all(last_config_values | mask);
+  else if (dir == GPIO_OUT)
+    iox_config_all(last_config_values & ~mask);
+  return (prev_val & mask) ? GPIO_IN : GPIO_OUT;
+}
+
+int iox_get_pin_output(int pin) {
+  if (iox_spi_speed < 1000)
+    return -1;
+  return (last_output_values >> (pin & 0xf)) & 1;
+}
+int iox_set_pin_output(int pin, int high) {
+  if (iox_spi_speed < 1000)
+    return -1;
+  int prev_val = last_output_values;
+  const int mask = 1 << (pin & 0xf);
+  if (high)
+    iox_set_all(last_output_values | mask);
+  else
+    iox_set_all(last_output_values & ~mask);
+  return (prev_val >> (pin & 0xf)) & 1;
+}
+
+int iox_get_pin_value(int pin) {
+  if (iox_spi_speed < 1000)
+    return -1;
+  return (iox_get_all() >> (pin & 0xf)) & 1;
 }
 
 // check if IOX SPI works
@@ -578,6 +678,81 @@ int iox_check() {
   return 0;
 }
 
+// configure all A5 pins on the Pico itself
+int a5_pico_pins_init() {
+  // initialize UART pins
+  gpio_set_function(PIN_A5_UART_RX, GPIO_FUNC_UART);
+  gpio_set_function(PIN_A5_UART_TX, GPIO_FUNC_UART);
+  bi_decl(bi_2pins_with_func(PIN_A5_UART_RX, PIN_A5_UART_TX, GPIO_FUNC_UART));
+  // initialize SPI pins
+  gpio_set_function(PIN_A5_SCK, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_A5_MOSI, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_A5_MISO, GPIO_FUNC_SPI);
+  bi_decl(bi_3pins_with_func(PIN_A5_SCK, PIN_A5_MOSI, PIN_A5_MISO, GPIO_FUNC_SPI));
+  gpio_init(PIN_A5_SSn);
+  gpio_put(PIN_A5_SSn, 1); // initially de-selected
+  gpio_set_dir(PIN_A5_SSn, GPIO_OUT);
+  bi_decl(bi_1pin_with_name(PIN_A5_SSn, "A5_SS#"));
+  // scan pins (weak pulldown on SCANOUT)
+  gpio_init(PIN_A5_SCANEN);
+  gpio_put(PIN_A5_SCANEN, 0); // initially de-selected
+  gpio_set_dir(PIN_A5_SCANEN, GPIO_OUT);
+  bi_decl(bi_1pin_with_name(PIN_A5_SCANEN, "A5_SCANEN"));
+  gpio_init(PIN_A5_SCANIN);
+  gpio_put(PIN_A5_SCANIN, 0); // initially de-selected
+  gpio_set_dir(PIN_A5_SCANIN, GPIO_OUT);
+  bi_decl(bi_1pin_with_name(PIN_A5_SCANIN, "A5_SCANIN"));
+  gpio_init(PIN_A5_SCANOUT);
+  gpio_set_pulls(PIN_A5_SCANOUT, false, true);
+  gpio_set_dir(PIN_A5_SCANOUT, GPIO_IN);
+  bi_decl(bi_1pin_with_name(PIN_A5_SCANOUT, "A5_SCANOUT"));
+  // GPIOs on the Pico - make these inputs until we confirm otherwise, and enable pull-downs
+  gpio_init(PIN_A5_GPIO6);
+  gpio_set_pulls(PIN_A5_SCANOUT, false, true);
+  gpio_set_dir(PIN_A5_SCANIN, GPIO_IN);
+  bi_decl(bi_1pin_with_name(PIN_A5_GPIO6, "A5_GPIO6"));
+  gpio_init(PIN_A5_GPIO10);
+  gpio_set_pulls(PIN_A5_SCANOUT, false, true);
+  gpio_set_dir(PIN_A5_GPIO10, GPIO_IN);
+  bi_decl(bi_1pin_with_name(PIN_A5_GPIO10, "A5_GPIO10"));
+  return 0;
+}
+
+// configure all A5 pins on the IOX
+int a5_iox_pins_init() {
+  if (! iox_spi_speed)
+    return -1;
+  // set CLKSRC, TILESEL*, TESTEN to outputs
+  // set the rest to inputs for now
+  // have CLKSRC and TESTEN output 0, TILESEL* outputting 2'b01 by default
+  last_output_values = (1 << (PIN_A5_TILESEL0&0xf));
+  last_config_values = ~((1 << (PIN_A5_CLKSRC&0xf))   | (1 << (PIN_A5_TESTEN&0xf)) |
+                         (1 << (PIN_A5_TILESEL1&0xf)) | (1 << (PIN_A5_TILESEL0&0xf)));
+  last_pullup_values = last_config_values;
+  // config the output values
+  iox_writecmd_all(IOX_CMD_SET, last_output_values);
+  // enable pull-ups on all the input pins
+  iox_writecmd_all(IOX_CMD_PULLUP, last_pullup_values);
+  // configure the pin directions
+  iox_writecmd_all(IOX_CMD_CFG, last_config_values);
+  return 0;
+}
+
+void iox_debug() {
+  if (! iox_spi_speed) {
+    puts("IOX not available!");
+    return;
+  }
+  unsigned get = iox_readcmd_all(IOX_CMD_GET);
+  unsigned set = iox_readcmd_all(IOX_CMD_SET);
+  unsigned cfg = iox_readcmd_all(IOX_CMD_CFG);
+  unsigned pullup = iox_readcmd_all(IOX_CMD_PULLUP);
+  unsigned rdinv = iox_readcmd_all(IOX_CMD_RDINV);
+  const unsigned tilesel_mask = (1<<(PIN_A5_TILESEL1&0xF)) | (1<<(PIN_A5_TILESEL0&0xF));
+  printf("IOX: GSR=%04X OCR=%04X GCR=%04X PIR=%04X PUR=%04X\n", get, set, cfg, rdinv, pullup);
+  printf(! (cfg & tilesel_mask) ? "     TILESEL=%u\n" : "     TILESEL=floating\n", 
+         (set & tilesel_mask) >> (PIN_A5_TILESEL0&0xF));
+}
 
 const char *get_pin_location(unsigned pin)
 {
@@ -599,7 +774,7 @@ const char *get_pin_name(unsigned pin)
   else if (pin < 0x40)
     return 0;
   else if (pin < 0x40 + 16)
-    return pico_signames[pin - 0x40];
+    return iox_signames[pin - 0x40];
   else
     return 0;
 }
@@ -642,6 +817,5 @@ int adc_probe()
     if ((resp & cmp_mask) == expected_resp)
       return addr;
   }
-  adc_spi_speed = 0;
   return -1;
 }

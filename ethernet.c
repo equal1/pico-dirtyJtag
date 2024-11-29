@@ -676,19 +676,19 @@ void w5500_spi_init()
 {
   // configure CS#
   gpio_init(PIN_ETH_CSn);
-  gpio_set_dir(PIN_ETH_CSn, GPIO_OUT);
   gpio_put(PIN_ETH_CSn, 1); // initially de-selected
-  bi_decl(bi_1pin_with_name(PIN_ETH_CSn, "W5500_CS#"));
+  gpio_set_dir(PIN_ETH_CSn, GPIO_OUT);
+  bi_decl(bi_1pin_with_name(PIN_ETH_CSn, "ETH_CS#"));
   // configure RST#
   gpio_init(PIN_ETH_RSTn);
+  gpio_put(PIN_ETH_RSTn, 0); // initially held in reset
   gpio_set_dir(PIN_ETH_RSTn, GPIO_OUT);
-  gpio_put(PIN_ETH_RSTn, 0);
-  bi_decl(bi_1pin_with_name(PIN_ETH_RSTn, "W5500_RST#"));
+  bi_decl(bi_1pin_with_name(PIN_ETH_RSTn, "ETH_RST#"));
   // configure INT#
   gpio_init(PIN_ETH_INTn);
   gpio_set_dir(PIN_ETH_INTn, GPIO_IN);
   gpio_put(PIN_ETH_INTn, 0);
-  bi_decl(bi_1pin_with_name(PIN_ETH_INTn, "W5500_INT#"));
+  bi_decl(bi_1pin_with_name(PIN_ETH_INTn, "ETH_INT#"));
   //gpio_set_irq_enabled_with_callback(PIN_W5500_INTn, GPIO_IRQ_EDGE_FALL, true, w5500_on_irq);
   // configure SPI itself - mode 0
   spi_init(SPI_ETH, FREQ_ETH_KHZ * 1000);

@@ -7,6 +7,7 @@
 #include <pico/unique_id.h>
 #include <hardware/pio.h>
 #include <hardware/spi.h>
+#include <hardware/clocks.h>
 #include <bsp/board.h>
 #include <tusb.h>
 #include "pio_jtag.h"
@@ -74,8 +75,8 @@ void iox_init()
 {
   // configure CS#
   gpio_init(PIN_IOX_SSn);
-  gpio_set_dir(PIN_IOX_SSn, GPIO_OUT);
   gpio_put(PIN_IOX_SSn, 1); // initially de-selected
+  gpio_set_dir(PIN_IOX_SSn, GPIO_OUT);
   bi_decl(bi_1pin_with_name(PIN_IOX_SSn, "IOX_SS#"));
   // configure SPI itself - mode 0
   spi_init(SPI_IOX, FREQ_IOX_KHZ * 1000);
@@ -87,7 +88,7 @@ void iox_init()
   bi_decl(bi_3pins_with_func(PIN_IOX_MISO, PIN_IOX_MOSI, PIN_IOX_SCK, GPIO_FUNC_SPI));
   iox_spi_speed = spi_get_baudrate(SPI_IOX);
   if (iox_check()) {
-    printf ("IOX does NOT work at %u.%uMHz!\n", (iox_spi_speed+500)/1000000, ((iox_spi_speed+500)%1000000)/1000);
+    //printf ("IOX does NOT work at %u.%uMHz!\n", (iox_spi_speed+500)/1000000, ((iox_spi_speed+500)%1000000)/1000);
     iox_spi_speed = 0;
   }
 }
@@ -98,12 +99,12 @@ void adc_init()
 {
   // configure CS#
   gpio_init(PIN_ADC_SSn);
-  gpio_set_dir(PIN_ADC_SSn, GPIO_OUT);
   gpio_put(PIN_ADC_SSn, 1); // initially de-selected
+  gpio_set_dir(PIN_ADC_SSn, GPIO_OUT);
   bi_decl(bi_1pin_with_name(PIN_ADC_SSn, "ADC_SS#"));
   // configure SPI itself - mode 0
   spi_init(SPI_ADC, FREQ_ADC_KHZ * 1000);
-  spi_set_format (SPI_ADC, 8,0, 0, 0);
+  spi_set_format (SPI_ADC, 8, 0, 0, 0);
   // configure the SPI pins
   gpio_set_function(PIN_ADC_SCK, GPIO_FUNC_SPI);
   gpio_set_function(PIN_ADC_MOSI, GPIO_FUNC_SPI);
@@ -112,10 +113,13 @@ void adc_init()
   adc_spi_speed = spi_get_baudrate(SPI_ADC);
   adc_addr = -1;
   if ((adc_addr = adc_probe()) < 0) {
-    printf ("ADC does NOT work at %u.%uMHz!\n", (adc_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000);
+    //printf ("ADC does NOT work at %u.%uMHz!\n", (adc_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000);
     adc_spi_speed = 0;
   }
 }
+
+int a5_pico_pins_init();
+int a5_iox_pins_init();
 
 // in ethernet.c
 int eth_spi_speed;
@@ -224,13 +228,17 @@ int main()
   usbserial = __builtin_bswap64(*(uint64_t*)&uID);
   eth_init(usbserial);
 
+  // configure the rest of the a5 pins
+  a5_pico_pins_init();
+  a5_iox_pins_init();
+  unsigned sysclk_khz = (clock_get_hz(clk_sys) + 500)/ 1000;
   // initialize the header
   sprintf (whoami,
             "equal1 DirtyJTAG2-pico (%s, %s%s %s)\n",
             git_Branch, git_Describe, git_AnyUncommittedChanges?"|dirty":"",
              git_Remote);
   sprintf(whoami + strlen(whoami),
-          "  running from %s on %s, host board %s\n",
+          "  running from %s on %s @%u.%uMHz, host board %s\n",
           location_of(main),
 #         if PICO_RP2040
           eth_spi_speed ? "a W5500_EVB_Pico" : "a Raspberry_Pico",
@@ -239,7 +247,9 @@ int main()
 #         else
           "an unknown board",
 #         endif
-          adc_spi_speed ? "DDv2+" : "DDv1");
+          (sysclk_khz + 50)/1000, (sysclk_khz + 50)%1000/100, 
+          (adc_spi_speed && iox_spi_speed) ? "DDv2+" :
+          iox_spi_speed ? "DDv1" : "unknown");
   if (iox_spi_speed > 0)
     sprintf(whoami + strlen(whoami),
             "IOX: " IOX_NAME ", spi%c@%u.%03uMHz, SS#@GP%u\n",
@@ -271,6 +281,8 @@ int main()
 
   // printf the header
   printf ("\n----\n%s----\n", whoami);
+  void iox_debug();
+  iox_debug();
 
   multicore_launch_core1(core1_entry);
   while (1) {
