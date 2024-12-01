@@ -88,6 +88,17 @@ static void eth_crc32_wait();
 
 static int client_uses_crc32;
 
+extern int eth_spi_speed;
+static void w5500_on_irq(uint, uint32_t);
+static void w5500_select();
+static void w5500_deselect();
+static uint8_t w5500_read();
+static void w5500_write(uint8_t);
+static void w5500_dma_init();
+static void w5500_block_read(uint8_t*, uint16_t);
+static void w5500_block_write(uint8_t*, uint16_t);
+static int w5500_set_spi_speed(unsigned speed);
+
 int eth_init(uint64_t uid)
 {
   // configure the MAC address
@@ -108,12 +119,40 @@ int eth_init(uint64_t uid)
   w5500_dma_init();
   w5500_spi_init();
 
+  // initialize the Ethernet chip itself
+  reg_wizchip_cs_cbfunc(w5500_select, w5500_deselect); // chip select control
+  reg_wizchip_spi_cbfunc(w5500_read, w5500_write); // receive/send
+  reg_wizchip_spiburst_cbfunc(w5500_block_read, w5500_block_write); // receive/send block
+  // grab the chip name (can't fail)
+	ctlwizchip (CW_GET_ID, dhcp_buf);
+  // try to find the maximum frequency at which the chip would talk to us
+  while (! w5500_set_spi_speed(eth_spi_speed)) {
+    // if we're >= 10MHz, decrease by 1MHz
+    if (eth_spi_speed >= 10000000)
+      eth_spi_speed -= 1000000;
+    // if we're >= 1MHz, decrease by 0.5MHz
+    else if (eth_spi_speed >= 1000000)
+      eth_spi_speed -= 500000;
+    // if we can't connect even at 1MHz, give up
+    else {
+      eth_spi_speed = 0;
+      break;
+    }
+  }
+  if (! eth_spi_speed) {
+    notify_ip_config(0, 0, 0, 0, 0);
+    eth_status = ETH_FATAL;
+    return -1;
+  }
+  // grab the initial PHY link
+  ctlwizchip (CW_GET_PHYLINK, (void *)&eth_link_state);
+  // initialize crc32 support
   eth_crc32_init();
-
-  // only keep the LED on when we have the IP connection up
-  set_led(0);
   // pass the MAC and the hostname to whoami()
   notify_ip_config(0, eth_macaddr, eth_hostname, 0, 0);
+  eth_status = ETH_NO_LINK;
+  // only keep the LED on when we have the IP connection up
+  set_led(0);
   return 0;
 }
 
@@ -164,8 +203,6 @@ static int is_socket_state_transient(int ss)
   return 0;
 }
 
-extern int eth_spi_speed;
-
 #define RESEND_RESPONSE_MAGIC 0x137f5aa5
 #define RESEND_COMMAND_MAGIC  0x7f5aa513
 
@@ -173,13 +210,17 @@ void eth_task() {
   int tmp;
   int sock_state = -1;
 
+  if (! eth_spi_speed)
+    return;
+
   switch (eth_status) {
   // if ethernet failed, give up
   case ETH_FATAL:
     return;
 
+  // this should never happen
   case ETH_NONE:
-    if (w5500_init()) {
+    if (eth_spi_speed) {
       strcpy (eth_err, "W5500 init failed");
     fatal_error:
       eth_status = ETH_FATAL;
@@ -663,15 +704,6 @@ bool every_100ms(repeating_timer_t *rt)
   return true;
 }
 
-static void w5500_on_irq(uint, uint32_t);
-static void w5500_select();
-static void w5500_deselect();
-static uint8_t w5500_read();
-static void w5500_write(uint8_t);
-static void w5500_dma_init();
-static void w5500_block_read(uint8_t*, uint16_t);
-static void w5500_block_write(uint8_t*, uint16_t);
-
 void w5500_spi_init()
 {
   // configure CS#
@@ -702,7 +734,11 @@ void w5500_spi_init()
 }
 
 
-static int w5500_set_spi_speed(unsigned speed) {
+int w5500_set_spi_speed(unsigned speed) {
+# if 0
+  printf ("W5500: attempting SPI at %u.%03uMHz...\n", 
+          (eth_spi_speed+500)/1000000, ((eth_spi_speed+500)%1000000/1000) );
+# endif
   // re-configure the SPI speed
   spi_set_baudrate(SPI_ETH, speed);
   eth_spi_speed = spi_get_baudrate(SPI_ETH);
