@@ -23,9 +23,10 @@
  *
  */
 
+#include <stdint.h>
+#include <string.h>
 #include "dirtyJtagConfig.h"
-#include "tusb.h"
-#include "get_serial.h"
+#include <tusb.h>
 
 //#define USB_BCD   0x0110
 #define USB_BCD   0x0200
@@ -35,6 +36,17 @@
 #define STR_VENDOR "equal1"
 #define STR_DEVICE "DirtyJTAG2"
 #define CDC_PREFIX "DirtyJTAG2 CDC "
+
+
+/* C string for iSerialNumber in USB Device Descriptor, two chars per byte + terminating NUL */
+static char usb_serial[20];
+
+int usb_init(uint64_t uid)
+{
+    sprintf(usb_serial, "%016llX", uid);
+    tusb_init();
+    return 0;
+}
 
 //--------------------------------------------------------------------+
 // Device Descriptors

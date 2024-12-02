@@ -76,6 +76,7 @@ static char eth_hostname[] = "pico-0123456789abcdef";
 
 static void w5500_spi_init();
 static void w5500_dma_init();
+static void network_init();
 
 // main callback, updates the ID part
 // connected (-1: err), MAC, hostname, server listening, client connected
@@ -148,6 +149,8 @@ int eth_init(uint64_t uid)
   ctlwizchip (CW_GET_PHYLINK, (void *)&eth_link_state);
   // initialize crc32 support
   eth_crc32_init();
+  // configure the MAC
+  network_init();
   // pass the MAC and the hostname to whoami()
   notify_ip_config(0, eth_macaddr, eth_hostname, 0, 0);
   eth_status = ETH_NO_LINK;
@@ -157,7 +160,6 @@ int eth_init(uint64_t uid)
 }
 
 static int w5500_init();
-static void network_init();
 
 typedef void (*socket_handler_t)(unsigned, unsigned);
 static void w5500_config_socket_irq(unsigned socket, socket_handler_t handler);

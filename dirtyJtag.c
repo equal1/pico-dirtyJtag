@@ -13,7 +13,6 @@
 #include "pio_jtag.h"
 #include "led.h"
 #include "cmd.h"
-#include "get_serial.h"
 #include "git.h"
 
 #include "dirtyJtagConfig.h"
@@ -124,11 +123,10 @@ int a5_iox_pins_init();
 // in ethernet.c
 int eth_spi_speed;
 int eth_init(uint64_t);
+// in usb.c
+int usb_init(uint64_t);
 
-// callback for updating the ID part
-// connected (-1: err), hostname, MAC, server listening, client connected
-// if connected==-1. "hostname" is the error
-static uint64_t usbserial = 0;
+static uint64_t board_id = 0;
 
 static char *ipconfig_ptr;
 static const char *hostname = "?", *macaddr = "?";
@@ -216,8 +214,6 @@ int main()
 {
   board_init();
   led_init(PIN_LED);
-  usb_serial_init();
-  tusb_init();
   stdio_uart_init_full(uart1, 115200, 8, -1); // enable stdio over uart1 on pin_tx=gp8, no rx
   adc_init();
   iox_init();
@@ -225,8 +221,10 @@ int main()
   // get the Pico's serial ID
   pico_unique_board_id_t uID;
   pico_get_unique_board_id(&uID);
-  usbserial = __builtin_bswap64(*(uint64_t*)&uID);
-  eth_init(usbserial);
+  board_id = __builtin_bswap64(*(uint64_t*)&uID);
+  board_id = (board_id >> 8) | (board_id << 56);
+  usb_init(board_id);
+  eth_init(board_id);
 
   // configure the rest of the a5 pins
   a5_pico_pins_init();
@@ -234,18 +232,18 @@ int main()
   unsigned sysclk_khz = (clock_get_hz(clk_sys) + 500)/ 1000;
   // initialize the header
   sprintf (whoami,
-            "equal1 DirtyJTAG2-pico (%s, %s%s %s)\n",
+            "equal1 JTAG (%s, %s%s %s)\n",
             git_Branch, git_Describe, git_AnyUncommittedChanges?"|dirty":"",
              git_Remote);
   sprintf(whoami + strlen(whoami),
           "  running from %s on %s @%u.%uMHz, host board %s\n",
           location_of(main),
 #         if PICO_RP2040
-          eth_spi_speed ? "a W5500_EVB_Pico" : "a Raspberry_Pico",
+          eth_spi_speed ? "W5500_EVB_Pico" : "Raspberry_Pico",
 #         elif PICO_RP2350
-          eth_spi_speed ? "a W5500_EVB_Pico2" : "a Raspberry_Pico2",
+          eth_spi_speed ? "W5500_EVB_Pico2" : "Raspberry_Pico2",
 #         else
-          "an unknown board",
+          "???",
 #         endif
           (sysclk_khz + 50)/1000, (sysclk_khz + 50)%1000/100, 
           (adc_spi_speed && iox_spi_speed) ? "DDv2+" :
@@ -256,27 +254,21 @@ int main()
             (SPI_IOX == spi0)? '0' : '1',
             (iox_spi_speed+500)/1000000, ((iox_spi_speed+500)%1000000)/1000,
             PIN_IOX_SSn);
-  else
-    strcat(whoami, "IOX: not present\n");
   if (adc_addr >= 0)
     sprintf(whoami + strlen(whoami),
             "ADC: " ADC_NAME ", spi%c@%u.%03uMHz, SS#@GP%u; device address %u\n",
             (SPI_ADC == spi0)? '0' : '1',
             (adc_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000,
             PIN_ADC_SSn, adc_addr);
-  else
-    strcat(whoami, "ADC: not present\n");
   sprintf(whoami + strlen(whoami),
              "USB serial: %016llX (label: %04X)\n",
-            usbserial, (uint32_t)(usbserial >> 8) & 0xFFFF);
+            board_id, (uint32_t)board_id & 0xFFFF);
   if (eth_spi_speed > 0)
     sprintf(whoami + strlen(whoami),
             "Ethernet: " ETH_NAME ", spi%c@%u.%03uMHz, SS#@GP%u; MAC address %s, hostname %s\n",
             (SPI_ETH == spi0)? '0' : '1',
             (eth_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000,
             PIN_ETH_CSn, macaddr, hostname);
-  else
-    strcat(whoami, "Ethernet: not present\n");
   ipconfig_ptr = whoami + strlen(whoami);
 
   // printf the header

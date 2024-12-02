@@ -32,11 +32,10 @@ pico_sdk_init()
 # Add executable. Default name is the project name, version 0.1
 add_executable(dirtyJtag
 		dirtyJtag.c
-		usb_descriptors.c
 		pio_jtag.c
-		get_serial.c
 		cmd.c
 		led.c
+		usb.c
 		ethernet.c
 )
 target_include_directories(dirtyJtag PUBLIC 
