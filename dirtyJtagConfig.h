@@ -88,7 +88,7 @@
 #define PIN_A5_SSn  13 // GP13, header.17
 
 // other pins on Pico
-#define PIN_A5_SCANEN  6  // GP6,  header.12
+#define PIN_A5_SCANEN  6  // GP6,  header.9
 #define PIN_A5_SCANIN  9  // GP9,  header.12
 #define PIN_A5_SCANOUT 15 // GP15, header.20
 #define PIN_A5_CLK     28 // GP28, header.34

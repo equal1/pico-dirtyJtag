@@ -89,6 +89,8 @@ static void eth_crc32_wait();
 
 static int client_uses_crc32;
 
+extern volatile int adc_busy, eth_busy;
+
 extern int eth_spi_speed;
 static void w5500_on_irq(uint, uint32_t);
 static void w5500_select();
@@ -116,6 +118,7 @@ int eth_init(uint64_t uid)
            network.mac[0], network.mac[1], network.mac[2],
            network.mac[3], network.mac[4], network.mac[5]);
   eth_status = ETH_NONE;
+  eth_busy = 0;
   // initial configuration of the W5500 interface
   w5500_dma_init();
   w5500_spi_init();
@@ -761,35 +764,6 @@ int w5500_set_spi_speed(unsigned speed) {
   return ok;
 }
 
-int w5500_init()
-{
-  // set the operators
-  reg_wizchip_cs_cbfunc(w5500_select, w5500_deselect); // chip select control
-  reg_wizchip_spi_cbfunc(w5500_read, w5500_write); // receive/send
-  reg_wizchip_spiburst_cbfunc(w5500_block_read, w5500_block_write); // receive/send block
-  // grab the chip name (can't fail)
-	ctlwizchip (CW_GET_ID, dhcp_buf);
-  unsigned version = 0;
-  // try to find the maximum frequency at which the chip would talk to us
-  unsigned last_bad_spi_speed = 0;
-  while (! w5500_set_spi_speed(eth_spi_speed)) {
-    // if we're >= 10MHz, decrease by 1MHz
-    if (eth_spi_speed >= 10000000)
-      eth_spi_speed -= 1000000;
-    // if we're >= 1MHz, decrease by 0.5MHz
-    else if (eth_spi_speed >= 1000000)
-      eth_spi_speed -= 500000;
-    // if we can't connect even at 1MHz, give up
-    else {
-      eth_spi_speed = 0;
-      return -4;
-    }
-  }
-  // grab the initial PHY link
-  ctlwizchip (CW_GET_PHYLINK, (void *)&eth_link_state);
-  return 0;
-}
-
 void network_init()
 {
   // stop the DHCP FSM, if startd
@@ -1196,9 +1170,11 @@ void w5500_on_irq(uint gpio, uint32_t events)
 
 
 // SPI functions
-
 void w5500_select(void)
 {
+  while (adc_busy) // if the ADC is running on the other core, wait for it to finish
+    ;
+  eth_busy = 1;
   // reload the SPI settings, if needed
   if (spi_get_baudrate(SPI_ETH) != eth_spi_speed)
     spi_set_baudrate(SPI_ETH, eth_spi_speed);
@@ -1208,6 +1184,7 @@ void w5500_select(void)
 void w5500_deselect(void)
 {
   gpio_put(PIN_ETH_CSn, 1);
+  eth_busy = 0;
 }
 
 uint8_t w5500_read(void)

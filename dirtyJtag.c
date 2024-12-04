@@ -110,7 +110,7 @@ void adc_init()
   gpio_set_function(PIN_ADC_MISO, GPIO_FUNC_SPI);
   bi_decl(bi_3pins_with_func(PIN_ADC_MISO, PIN_ADC_MOSI, PIN_ADC_SCK, GPIO_FUNC_SPI));
   adc_spi_speed = spi_get_baudrate(SPI_ADC);
-  if (adc_probe()) {
+  if (adc_probe() < 0) {
     //printf ("ADC does NOT work at %u.%uMHz!\n", (adc_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000);
     adc_spi_speed = 0;
   }
@@ -209,11 +209,15 @@ static const char *location_of(void *ptr)
 
 //-----------------------------------------------------------------------------
 
+volatile int adc_busy, eth_busy;
+
 int main()
 {
   board_init();
   led_init(PIN_LED);
   stdio_uart_init_full(uart1, 115200, 8, -1); // enable stdio over uart1 on pin_tx=gp8, no rx
+
+  adc_busy = 0; eth_busy = 0;
   adc_init();
   iox_init();
 
@@ -280,8 +284,12 @@ int main()
     // see if we have anything incoming
     if (usbbuf.state < READY_TO_EXECUTE)
       usb_rx_task();
-    if (ethbuf.state < READY_TO_EXECUTE)
+    if (ethbuf.state < READY_TO_EXECUTE) {
+      // if an ADC op is running on core 1, wait for it to finish
+      while (adc_busy)
+        ;
       eth_rx_task();
+    }
     // kick off received tasks
     if (usbbuf.state == READY_TO_EXECUTE) // usb_rx_task() might update this
       run_jtag_task(&usbbuf);
@@ -292,8 +300,12 @@ int main()
     // send the response, if any 
     if (usbbuf.state > READY_TO_EXECUTE) // check_jtag_tasks() might update this
       usb_tx_task();
-    if (ethbuf.state > READY_TO_EXECUTE) // check_jtag_tasks() might update this
+    if (ethbuf.state > READY_TO_EXECUTE) { // check_jtag_tasks() might update this
+      // if an ADC op is running on core 1, wait for it to finish
+      while (adc_busy)
+        ;
       eth_tx_task();
+    }
   }
 }
 

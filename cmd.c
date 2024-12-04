@@ -97,6 +97,8 @@ static const char *pico_signames[32] = {
   [PIN_A5_GPIO16 & ~0x40] =   "GPIO16",
 };
 
+extern volatile int adc_busy, eth_busy;
+
 unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
   unsigned cmdpos = 0, resppos = 0;
@@ -370,6 +372,56 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       cmdpos += m + 2;
       break;
 
+    case CMD_ADC_GETREGS:
+      cmd_printf (" %c# @%u ADC_GETREGS\n", buf, cmdpos);
+      m = do_adc_getregs(respbuf+resppos);
+      if (! m)
+        puts("No ADC preset for ADC_GETREGS");
+      else
+       resppos += m;
+      ++cmdpos;
+      break;
+    case CMD_ADC_CHREAD:
+      cmd_printf (" %c# @%u ADC_CHREAD %u\n", buf, cmdpos, cmdbuf[cmdpos+1] & 3);
+      // need to do this here - CHREAD_ALL calls do_adc_chread in a loop
+      while (eth_busy) // wait for the other core to finish whatever it's doing on ETH
+        ;
+      adc_busy = 1;
+      // if the W5500 was selected, de-select it!
+      if (spi_get_baudrate(SPI_ADC) != adc_spi_speed)
+        spi_set_baudrate(SPI_ADC, adc_spi_speed);
+      m = do_adc_chread(respbuf+resppos, cmdbuf[cmdpos+1] & 3);
+      // release the SPI
+      adc_busy = 0;
+      if (! m)
+        puts("No ADC preset for ADC_CHREAD");
+      else
+       resppos += m;
+      cmdpos += 2;
+      break;
+    case CMD_ADC_CHREAD_ALL:
+      cmd_printf (" %c# @%u ADC_CHREAD_ALL\n", buf, cmdpos);
+      // need to do this here - CHREAD_ALL calls do_adc_chread in a loop
+      while (eth_busy) // wait for the other core to finish whatever it's doing on ETH
+        ;
+      adc_busy = 1;
+      // if the W5500 was selected, de-select it!
+      if (spi_get_baudrate(SPI_ADC) != adc_spi_speed)
+        spi_set_baudrate(SPI_ADC, adc_spi_speed);
+      m = do_adc_chread(respbuf+resppos, 0);
+      if (m == 4) {
+        m += do_adc_chread(respbuf+resppos+m, 1);
+        m += do_adc_chread(respbuf+resppos+m, 2);
+        m += do_adc_chread(respbuf+resppos+m, 3);
+      }
+      // release the SPI
+      adc_busy = 0;
+      if (! m)
+        puts("No ADC preset for ADC_CHREAD");
+      else
+       resppos += m;
+      ++cmdpos;
+      break;
     default:
       // invalid command: reboot
       // also: print the entire command byte, not just cmd[6:0]
@@ -627,6 +679,11 @@ void iox_debug() {
     printf("floating");
   else
     printf("%u", (set & tilesel_mask) >> (PIN_A5_TILESEL0&0xF));
+  printf (" CLKSRC=");
+  if (cfg & (1<<(PIN_A5_CLKSRC&0x1f)))
+    printf("floating\n");
+  else
+    printf("%u\n", (set & (1<<(PIN_A5_CLKSRC&0x1f))) ? 1 : 0);
 }
 
 const char *get_pin_location(unsigned pin)
@@ -654,99 +711,199 @@ const char *get_pin_name(unsigned pin)
     return 0;
 }
 
+//#define DEBUG
+
+// force the most recent channel to be set on the 1st read
+int last_adc_ch;
+
 int adc_probe()
 {
   // the ADC can have one of 4 addresses, which'll get sent in reply to 
   // the 1st byte
   adc_addr = -1;
+  last_adc_ch = -1;
   if (adc_spi_speed < 1000)
     return -1;
+  while (eth_busy) // wait for the other core to finish whatever it's doing on ETH
+    ;
+  adc_busy = 1;
   if (spi_get_baudrate(SPI_ADC) != adc_spi_speed)
     spi_set_baudrate(SPI_ADC, adc_spi_speed);
   // attempt all 4 possible addresses with a dummy command
-  uint8_t cmd, resp;
+  uint8_t cmds[8], data[8];
   // to the command word, the response will be
-  // {0, 0, cmd[7], cmd[6], ~cmd[6], data_ready#, crc_en#, por_int#}
+  // {2'b0, cmd[7:6], ~cmd[6], data_ready#, crc_en#, por_int#}
   uint8_t expected_resp, cmp_mask = 0x38;
   for (unsigned addr = 0; addr < 4; ++addr) {
-    cmd = (addr<<6)|ADC_DO_READ(0);
+    cmds[0] = (addr<<6)|ADC_DO_READ(0);
     expected_resp = addr << 4;
     if (! (addr & 1))
       expected_resp |= 1 << 3;
-    resp = 0xff;
-    gpio_put(PIN_ADC_SSn, 0);
-    spi_write_read_blocking(SPI_ADC, &cmd, &resp, 1);
-    gpio_put(PIN_ADC_SSn, 1);
+    data[0] = 0xff;
+    gpio_put(PIN_ADC_SSn, 0); spi_write_read_blocking(SPI_ADC, cmds, data, 1); gpio_put(PIN_ADC_SSn, 1);
 #   ifdef DEBUG
-    printf ("ADC: addr %u: cmd=%02X resp=%02X exp_resp=%02X|mask=%02X\n", addr, cmd, resp, expected_resp, cmp_mask);
+    printf ("ADC: addr %u: cmd=%02X resp=%02X exp_resp=%02X|mask=%02X\n", addr, cmds[0], data[0], expected_resp, cmp_mask);
 #   endif
-    if ((resp & cmp_mask) == expected_resp) {
+    if ((data[0] & cmp_mask) == expected_resp) {
       adc_addr = addr;
-      return addr;
+      break;
     }
   }
-  return -1;
+  if (adc_addr == -1) {
+    adc_busy = 0;
+    return -1;
+  }
+
+  // configure the ADC
+  // - make sure register writes are unlocked
+  cmds[0] = (adc_addr << 6) | ADC_DO_WRITE_BURST(ADCR_LOCK);
+  cmds[1] = ADC_LOCK_MAGIC;
+  gpio_put(PIN_ADC_SSn, 0); spi_write_read_blocking(SPI_ADC, cmds, data, 2); gpio_put(PIN_ADC_SSn, 1);
+# ifdef DEBUG
+  printf("ADC unlock: %02X.%02X -> %02X.%02X\n", cmds[0], cmds[1], data[0], data[1]);
+# endif
+  // - setup the 4 CONFIG registers
+  cmds[0] = (adc_addr << 6) | ADC_DO_WRITE_BURST(ADCR_CONFIG0);
+  // set mode to defaults + standby, don't output MCLK
+  cmds[1] = ADC_CFG0_VREFSEL_INTERNAL | ADC_CFG0_CLKSEL_INT_NOCLK | ADC_CFG0_CSRC_NONE |
+            ADC_CFG0_MODE_SHUTDOWN; 
+  cmds[2] = ADC_CFG1_PRE_NONE | ADC_CFG1_OSR_DEFAULT; // use defaults
+  cmds[3] = ADC_CFG2_BOOST_NONE | ADC_CFG2_GAIN_NONE | ADC_CFG2_AZ_MUX_EN | ADC_CFG2_AZ_REF_EN; // use defaults + auto-zero algorithms
+  // defaults + cause one-shots to return to standby, data format: max
+  // (defaults include, crc disabled and crc set to 16bit)
+  cmds[4] = ADC_CFG3_CMODE_ONESHOT_SHUTDOWN | ADC_CFG3_DFMT_32BIT_SGNX_CHID;
+  // defaults + disable conversion start interrupt output
+  cmds[5] = ADC_IRQ_INACTIVE_HIGH_EN | ADC_IRQ_FASTCMD_EN;
+  // default to measuring temperature - doesn't matter, since read_ch and read_ch_all set this
+  cmds[6] = (ADC_MUXVAL_DIODE_P << ADC_MUX_VINP_SEL_POS) |
+            (ADC_MUXVAL_DIODE_M << ADC_MUX_VINN_SEL_POS);
+  // we're not using scanning mode, so leave the following regs alone
+
+  // perform the initial programming
+  gpio_put(PIN_ADC_SSn, 0); spi_write_read_blocking(SPI_ADC, cmds, data, 7); gpio_put(PIN_ADC_SSn, 1);
+# ifdef DEBUG
+  printf("ADC config: %02X.%02X%02X%02X%02X:%02X:%02X -> %02X.%02X%02X%02X%02X:%02X:%02X\n",
+         cmds[0], cmds[1], cmds[2], cmds[3], cmds[4], cmds[5], cmds[6],
+         data[0], data[1], data[2], data[3], data[4], data[5], data[6]);
+  // read back the registers
+  memset(cmds, 0xff, sizeof(cmds));
+  cmds[0] = (adc_addr << 6) | ADC_DO_READ_BURST(ADCR_CONFIG0);
+  gpio_put(PIN_ADC_SSn, 0); spi_write_read_blocking(SPI_ADC, cmds, data, 7); gpio_put(PIN_ADC_SSn, 1);
+  printf(" read back: %02X.%02X%02X%02X%02X:%02X:%02X -> %02X.%02X%02X%02X%02X:%02X:%02X\n",
+         cmds[0], cmds[1], cmds[2], cmds[3], cmds[4], cmds[5], cmds[6],
+         data[0], data[1], data[2], data[3], data[4], data[5], data[6]);
+# endif
+  adc_busy = 0;
+  return adc_addr;
 }
 
-#define ADCR_ADCDATA   0x0
-#define ADCR_CONFIG0   0x1
-#define ADCR_CONFIG1   0x2
-#define ADCR_CONFIG2   0x3
-#define ADCR_CONFIG3   0x4
-#define ADCR_IRQ       0x5
-#define ADCR_MUX       0x6
-#define ADCR_SCAN      0x7
-#define ADCR_TIMER     0x8
-#define ADCR_OFFSETCAL 0x9
-#define ADCR_GAINCAL   0xA
-#define ADCR_LOCK      0xD
-#define ADCR_CRCCFG    0xF
-
-// size of every register, in bits (for ADCDATA, it can be 1/2/4)
-uint8_t adc_rsize[16] = { 4, 1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 1, 1, 2, 2 };
-
-struct __attribute__((packed)) adcregs_s {
-  uint32_t adcdata;
-  uint8_t config[4];
-  uint8_t irq, mux;
-  uint32_t scan, timer, offsetcal, gaincal;
-  uint32_t dummyB;
-  uint8_t dummyC;
-  uint8_t lock;
-  uint16_t dummyE;
-  uint16_t crccfg;
+// size of every register, in bits (for ADCDATA, it can be 1/2/4; for CRC, it can be 2/4)
+static uint8_t adc_rsize[16] = {
+  4, // ADCDATA; size is (CONFIG[3]&(3<<4))?4:2
+  1, 1, 1, 1, // CONFIG[0:3]
+  1, 1, // IRQ, MUX
+  3, 3, 3, 3, // SCAN, TIMER, OFFSETCAL, GAINCAL
+  3, // RESERVED
+  1, // RESERVED
+  1, // LOCK
+  2, // RESERVED
+  2  // CRCCFG; size is 2*(1+((CONFIG[3]>>2)&1)
 };
 
-//#define ADC_DO_READ(a)        ((((a)&0xF)<<2)|1)
-//#define ADC_DO_WRITE_BURST(a) ((((a)&0xF)<<2)|2)
-//#define ADC_DO_READ_BURST(a)  ((((a)&0xF)<<2)|3)
+static struct adcregs_s adc_regs;
 
-int do_adc_getregs() {
-  // the ADC can have one of 4 addresses, which'll get sent in reply to 
-  // the 1st byte
+int do_adc_getregs(uint8_t *dest) {
   if (adc_spi_speed < 1000)
-    return -1;
+    return 0;
+  while (eth_busy) // wait for the other core to finish whatever it's doing on ETH
+    ;
+  adc_busy = 1;
+  // if the W5500 was selected, de-select it!
   if (spi_get_baudrate(SPI_ADC) != adc_spi_speed)
     spi_set_baudrate(SPI_ADC, adc_spi_speed);
-  // attempt all 4 possible addresses with a dummy command
-  uint8_t cmd, resp;
-  // to the command word, the response will be
-  // {0, 0, cmd[7], cmd[6], ~cmd[6], data_ready#, crc_en#, por_int#}
-  uint8_t expected_resp, cmp_mask = 0x38;
-  for (unsigned addr = 0; addr < 4; ++addr) {
-    cmd = (addr<<6)|ADC_DO_READ(0);
-    expected_resp = addr << 4;
-    if (! (addr & 1))
-      expected_resp |= 1 << 3;
-    resp = 0xff;
-    gpio_put(PIN_ADC_SSn, 0);
-    spi_write_read_blocking(SPI_ADC, &cmd, &resp, 1);
-    gpio_put(PIN_ADC_SSn, 1);
-#   ifdef DEBUG
-    printf ("ADC: addr %u: cmd=%02X resp=%02X exp_resp=%02X|mask=%02X\n", addr, cmd, resp, expected_resp, cmp_mask);
-#   endif
-    if ((resp & cmp_mask) == expected_resp)
-      return addr;
+  // do a readall of all registers, starting with register 1 (CONFIG0), finishing with ADCDATA
+  // we know we have 16-bit CRC and 32-bit DATA (initialization does that)
+  static uint8_t cmds[1+(1+1+1+1+1+1+3+3+3+3+3+1+1+2+2+4)];
+  static uint8_t data[1+(1+1+1+1+1+1+3+3+3+3+3+1+1+2+2+4)];
+  // build a DO_READ_BURST starting with 1 (CONFIG0)
+  memset (cmds, 0xff, sizeof(cmds));
+  cmds[0] = (adc_addr << 6) | ADC_DO_READ_BURST(ADCR_CONFIG0);
+  // get the registers
+  gpio_put(PIN_ADC_SSn, 0); spi_write_read_blocking(SPI_ADC, cmds, data, sizeof(cmds)); gpio_put(PIN_ADC_SSn, 1);
+  adc_busy = 0;
+  adc_regs.cmd       = cmds[0];
+  adc_regs.cmd_resp  = data[0];
+  adc_regs.config[0] = data[1];
+  adc_regs.config[1] = data[2];
+  adc_regs.config[2] = data[3];
+  adc_regs.config[3] = data[4];
+  adc_regs.irq       = data[5];
+  adc_regs.mux       = data[6];
+  adc_regs.scan      = ((uint32_t)data[7] << 16) | ((uint32_t)data[7+1] << 8) | data[7+2];
+  adc_regs.timer     = ((uint32_t)data[10] << 16) | ((uint32_t)data[10+1] << 8) | data[10+2];
+  adc_regs.offsetcal = ((uint32_t)data[13] << 16) | ((uint32_t)data[13+1] << 8) | data[13+2];
+  adc_regs.gaincal   = ((uint32_t)data[16] << 16) | ((uint32_t)data[16+1] << 8) | data[16+2];
+  uint32_t rsvd_0xB  = ((uint32_t)data[19] << 16) | ((uint32_t)data[19+1] << 8) | data[19+2];
+  uint8_t rsvd_0xC   =  data[22];
+  adc_regs.lock      =  data[23];
+  uint8_t rsvd_0xE   =  data[24];
+  adc_regs.crccfg    = ((uint32_t)data[25] << 8) | data[25+1];
+  adc_regs.adcdata   = ((uint32_t)data[27+0] << 24) | ((uint32_t)data[27+1] << 16) |
+                       ((uint32_t)data[27+2] << 8)  |            data[27+3];
+# ifdef DEBUG
+  printf ("ADC regs: >%02X <%02X: {%02X %02X %02X %02X, %02X %02X, %06X %06X %06X %06X (%06X %02X) %02X (%02X) %04X %08X}\n",
+          cmds[0], data[0], 
+          data[1], data[2], data[3], data[4],
+          data[5], data[6],
+          adc_regs.scan, adc_regs.timer, adc_regs.offsetcal, adc_regs.gaincal,
+          rsvd_0xB, data[22],
+          data[23],
+          data[24],
+          adc_regs.crccfg, adc_regs.adcdata);
+# endif
+  // if a destination was provided
+  if (dest)
+    memcpy(dest, &adc_regs, sizeof(adc_regs));
+  return sizeof(adc_regs);
+}
+
+
+int do_adc_chread(uint8_t *dest, unsigned ch)
+{
+  if (adc_spi_speed < 1000)
+    return 0;
+  // handle eth conflicts in the CALLER, since this gets called in a loop
+  // in chread_all!!!
+
+  // change the mux if needed
+  ch &= 3;
+  uint8_t cmd[8], data[8];
+  if (last_adc_ch != ch) {
+    cmd[0] = (adc_addr << 6) | ADC_DO_WRITE_BURST(ADCR_MUX);
+    cmd[1] = (ADC_MUXVAL_CH(ch) << ADC_MUX_VINP_SEL_POS) |
+             (ADC_MUXVAL_AGND << ADC_MUX_VINN_SEL_POS);
+    gpio_put(PIN_ADC_SSn, 0); spi_write_read_blocking(SPI_ADC, cmd, data, 2); gpio_put(PIN_ADC_SSn, 1);
+    printf ("set ADC channel to %u\n", ch);
+    last_adc_ch = ch;
   }
-  return -1;
+  // issue a fast conversion
+  cmd[0] = (adc_addr << 6) | ADC_DO_CONV_START;
+  gpio_put(PIN_ADC_SSn, 0); spi_write_read_blocking(SPI_ADC, cmd, data, 1); gpio_put(PIN_ADC_SSn, 1);
+  // poll until result is available
+  cmd[0] = (adc_addr << 6) | ADC_DO_READ(ADCR_ADCDATA);
+  cmd[1] = cmd[2] = cmd[3] = cmd[4] = 0xff;
+  int n = 0;
+  do {
+    gpio_put(PIN_ADC_SSn, 0); spi_write_read_blocking(SPI_ADC, cmd, data, 1); gpio_put(PIN_ADC_SSn, 1);
+    ++n;
+    // data should be{2'b0, cmd[7:6], ~cmd[6], data_ready#, crc_en#, por_int#}
+  } while (data[0] & (1<<2));
+  printf ("got data after %u polls\n", n);
+  // acually do the read
+  gpio_put(PIN_ADC_SSn, 0); spi_write_read_blocking(SPI_ADC, cmd, data, 5); gpio_put(PIN_ADC_SSn, 1);
+  dest[0] = data[4];
+  dest[1] = data[3];
+  dest[2] = data[2];
+  dest[3] = data[1];
+  return 4;
 }
