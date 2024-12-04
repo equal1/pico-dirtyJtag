@@ -68,7 +68,7 @@ void djtag_init()
   init_a5clk(&a5clk, 1000, PIN_A5_CLK);
 }
 
-unsigned iox_spi_speed;
+int iox_spi_speed;
 int iox_check();
 void iox_init()
 {
@@ -110,8 +110,7 @@ void adc_init()
   gpio_set_function(PIN_ADC_MISO, GPIO_FUNC_SPI);
   bi_decl(bi_3pins_with_func(PIN_ADC_MISO, PIN_ADC_MOSI, PIN_ADC_SCK, GPIO_FUNC_SPI));
   adc_spi_speed = spi_get_baudrate(SPI_ADC);
-  adc_addr = -1;
-  if ((adc_addr = adc_probe()) < 0) {
+  if (adc_probe()) {
     //printf ("ADC does NOT work at %u.%uMHz!\n", (adc_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000);
     adc_spi_speed = 0;
   }

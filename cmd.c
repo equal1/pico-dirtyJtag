@@ -42,75 +42,6 @@
 //#define cmd_printf(...) printf(__VA_ARGS__)
 #define cmd_printf(...) (void)(__VA_ARGS__)
 
-enum CommandIdentifier {
-  CMD_STOP = 0x00,
-  CMD_INFO = 0x01,
-  CMD_FREQ = 0x02,
-  CMD_XFER = 0x03,
-  CMD_SETSIG = 0x04,
-  CMD_GETSIG = 0x05,
-  CMD_CLK = 0x06,
-  CMD_SETVOLTAGE = 0x07, // not implemented
-  CMD_GOTOBOOTLOADER = 0x08,
-  CMD_REBOOT = 0x09, // DirtyJTAG extension
-  CMD_GETCLKS = 0x0a, // DirtyJTAG extension
-  CMD_A5FREQ = 0x0b, // DirtyJTAG extension: set A5 clock frequency
-  CMD_A5CLK = 0x0c,  // DirtyJTAG extension: enable/disable A5 clock
-  CMD_PINCFG_SET_ALL = 0x0d, // DirtyJTAG extension: configure all pins
-  CMD_PINCFG_SET = 0x0e, // DirtyJTAG extension: configure a specific pin (or all pins)
-  CMD_PINCFG_GET = 0x0f, // DirtyJTAG extension: configure a specific pin
-};
-
-// pincfg get/set
-#define PINCFG_SLEW_RATE_POS (0)
-#define PINCFG_SLEW_RATE_MASK (1<<0)
-#define PINCFG_SLEW_RATE_SLOW (0<<0) // GPIO_SLEW_RATE_SLOW
-#define PINCFG_SLEW_RATE_FAST (1<<0) // GPIO_SLEW_RATE_FAST
-
-#define PINCFG_DRIVE_STRENGTH_POS (1)
-#define PINCFG_DRIVE_STRENGTH_MASK (3<<1)
-#define PINCFG_DRIVE_STRENGTH_2MA  (0<<1) // GPIO_DRIVE_STRENGTH_2MA
-#define PINCFG_DRIVE_STRENGTH_4MA  (1<<1) // GPIO_DRIVE_STRENGTH_4MA
-#define PINCFG_DRIVE_STRENGTH_8MA  (2<<1) // GPIO_DRIVE_STRENGTH_8MA
-#define PINCFG_DRIVE_STRENGTH_12MA (3<<1) // GPIO_DRIVE_STRENGTH_12MA
-
-#define PINCFG_PULL_POS  (3)
-#define PINCFG_PULL_MASK (3<<3)
-#define PINCFG_PULL_NONE (0<<3)
-#define PINCFG_PULL_LOW  (1<<3)
-#define PINCFG_PULL_HIGH (2<<3)
-#define PINCFG_PULL_KEEP (3<<3)
-
-#define PINCFG_HYSTERESIS_POS  (5)
-#define PINCFG_HYSTERESIS_MASK (1<<5)
-#define PINCFG_HYSTERESIS_OFF  (0<<5)
-#define PINCFG_HYSTERESIS_ON   (1<<5)
-
-// PINCFG_GET only
-#define PINCFG_DIR_POS  (6)
-#define PINCFG_DIR_MASK (1<<6)
-#define PINCFG_DIR_IN   (0<<6)
-#define PINCFG_DIR_OUT  (1<<6)
-
-#define PINCFG_VALUE_POS  (7)
-#define PINCFG_VALUE_MASK (1<<7)
-#define PINCFG_VALUE_LOW  (0<<7)
-#define PINCFG_VALUE_HIGH (1<<7)
-
-#define PINCFG_FN_POS (8)
-#define PINCFG_FN_MASK (0x1f<<8)
-#define PINCFG_FN_XIP  (   0<<8)
-#define PINCFG_FN_SPI  (   1<<8)
-#define PINCFG_FN_UART (   2<<8)
-#define PINCFG_FN_I2C  (   3<<8)
-#define PINCFG_FN_PWM  (   4<<8)
-#define PINCFG_FN_SIO  (   5<<8)
-#define PINCFG_FN_PIO0 (   6<<8)
-#define PINCFG_FN_PIO1 (   7<<8)
-#define PINCFG_FN_GPCK (   8<<8)
-#define PINCFG_FN_USB  (   9<<8)
-#define PINCFG_FN_NULL (0x1f<<8)
-
 // GPIOs on the PICO itself
 static const uint32_t pico_pins = 
   (1 << PIN_RST) | (1 << PIN_A5_CLK) | // a5 reset#, sysclk
@@ -166,36 +97,6 @@ static const char *pico_signames[32] = {
   [PIN_A5_GPIO16 & ~0x40] =   "GPIO16",
 };
 
-enum CommandModifier
-{
-  // CMD_XFER
-  NO_READ = 0x80,
-  EXTEND_LENGTH = 0x40,
-  // CMD_CLK
-  READOUT = 0x80,
-  // CMD_A5CLK
-  TURN_ON = 0x80,
-  // CMD_PINS_SET, CMD_PINS_GET
-  IOX_PINS = 0x80,
-};
-
-enum SignalIdentifier {
-  SIG_TCK = 1 << 1,
-  SIG_TDI = 1 << 2,
-  SIG_TDO = 1 << 3,
-  SIG_TMS = 1 << 4,
-  SIG_TRST = 1 << 5,
-  SIG_SRST = 1 << 6
-};
-
-int iox_get_pin_pullup(int);
-int iox_set_pin_pullup(int, int);
-int iox_get_pin_direction(int);
-int iox_set_pin_direction(int, int);
-int iox_get_pin_output(int); // this only tells you what the pin is trying to output
-int iox_set_pin_output(int, int);
-int iox_get_pin_value(int); // this tells you what's really on the pin
-
 unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
   unsigned cmdpos = 0, resppos = 0;
@@ -209,12 +110,6 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       break;
     switch (cmd) {
 
-    case CMD_SETVOLTAGE:
-      // this one is a dummy
-      cmd_printf (" %c# @%u CMD_SETVOLTAGE (no-op)\n", buf, cmdpos);
-      ++cmdpos;
-      break;
-
     case CMD_GOTOBOOTLOADER:
       cmd_printf (" %c# @%u CMD_BOOTLOADER\n", buf, cmdpos);
       puts ("Rebooting to bootloader...");
@@ -225,6 +120,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       break;
 
     case CMD_REBOOT:
+    case CMD_REBOOT_OLD: // need to ditch this, replace with GETCAPS
       cmd_printf (" %c# @%u CMD_REBOOT\n", buf, cmdpos);
       puts ("Rebooting...");
       sleep_ms(200);
@@ -232,6 +128,16 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       while (1)
         asm volatile ("wfe");
       break;
+
+#   if 0
+    // keep this in, just a reminder that the code point was actually
+    // reused as REBOOT
+    case CMD_SETVOLTAGE:
+      // this one is a dummy
+      cmd_printf (" %c# @%u CMD_SETVOLTAGE (no-op)\n", buf, cmdpos);
+      ++cmdpos;
+      break;
+#   endif
 
     case CMD_INFO:
       n = strlen(djtag_whoami());
@@ -426,22 +332,6 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       cmd_printf (" %c# @%u CMD_A5CLK %s\n", buf, cmdpos, (cmd == CMD_A5CLK) ? "OFF" : "ON");
       extern pio_a5clk_inst_t a5clk;
       a5clk.enabled = cmd != CMD_A5CLK;
-      //static int last_slew_rate = 0, last_drive_strength = 0;
-      //// if turning on the 1st time, set slew rate to low, drive strength to 2mA
-      //if (! djtag_clocks.a5clk_en) {
-      //  gpio_set_slew_rate (PIN_A5_CLK, last_slew_rate = 0);
-      //  gpio_set_drive_strength (PIN_A5_CLK, last_drive_strength = 0);
-      //} else {
-      //  if (! last_slew_rate)
-      //    gpio_set_slew_rate (PIN_A5_CLK, last_slew_rate = 1);
-      //  else {
-      //    gpio_set_slew_rate (PIN_A5_CLK, last_slew_rate = 0);
-      //    ++last_drive_strength;
-      //    if (last_drive_strength >= 4)
-      //      last_drive_strength = 0;
-      //    gpio_set_drive_strength (PIN_A5_CLK, last_drive_strength);
-      //  }
-      //}
       djtag_clocks.a5clk_en = a5clk.enabled;
       pio_sm_set_enabled(a5clk.pio, a5clk.sm, a5clk.enabled);
       ++cmdpos;
@@ -490,7 +380,6 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       break;
     }
   }
-  void iox_debug();
   if (do_iox_debug)
     iox_debug();
   // protocol forbids responses that are a multiple of 64 bytes, sof if that was the case, add one extra byte
@@ -510,23 +399,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
   return resppos;
 }
 
-#define IOX_DO_RD 0x80
-#define IOX_DO_WR 0x00
-
-#define IOX_CMD_GET 0x00 // read gpios
-#define IOX_CMD_SET 0x02 // set output value; defaults to 1(high)
-#define IOX_CMD_RDINV 0x04 // invert input polarity; defaults to 0(off)
-#define IOX_CMD_CFG 0x06 // config gpios; defaults to 1(inputs)
-#define IOX_CMD_PULLUP 0x08 // pull-up enable; defaults to 0(off)
-//#define IOX_CMD_INTEN 0x0a // interrupt enable; defaults to 0(off)
-//#define IOX_CMD_HIZ 0x0c // output Hi-Z; defaults to 0(driven outputs)
-//#define IOX_CMD_INTST 0x0e // interrupt status
-//#define IOX_CMD_INTPOS 0x10 // enable interrupt on positive edge; defaults to 0(off)
-//#define IOX_CMD_INTNEG 0x12 // enable interrupt on negative edge; defaults to 0(off)
-//#define IOX_CMD_INTFLT 0x14 // input filtering (ignore <225ns pulses, acknowledge >1075ns; anything inbetween may or may not be filtered); defaults to 1(on)
-
-extern int iox_spi_speed;
-int32_t iox_readcmd_all(unsigned cmd) {
+static int32_t iox_readcmd_all(unsigned cmd) {
   if (iox_spi_speed < 1000)
     return -1;
   const uint8_t
@@ -549,8 +422,7 @@ int32_t iox_readcmd_all(unsigned cmd) {
   return result;
 }
 
-extern int iox_spi_speed;
-int32_t iox_writecmd_all(unsigned cmd, uint32_t all) {
+static int32_t iox_writecmd_all(unsigned cmd, uint32_t all) {
   if (iox_spi_speed < 1000)
     return -1;
   uint8_t
@@ -749,9 +621,12 @@ void iox_debug() {
   unsigned pullup = iox_readcmd_all(IOX_CMD_PULLUP);
   unsigned rdinv = iox_readcmd_all(IOX_CMD_RDINV);
   const unsigned tilesel_mask = (1<<(PIN_A5_TILESEL1&0xF)) | (1<<(PIN_A5_TILESEL0&0xF));
-  printf("IOX: GSR=%04X OCR=%04X GCR=%04X PIR=%04X PUR=%04X\n", get, set, cfg, rdinv, pullup);
-  printf(! (cfg & tilesel_mask) ? "     TILESEL=%u\n" : "     TILESEL=floating\n", 
-         (set & tilesel_mask) >> (PIN_A5_TILESEL0&0xF));
+  printf("IOX: GSR=%04X OCR=%04X GCR=%04X PIR=%04X PUR=%04X\n"
+         "     TILESEL=", get, set, cfg, rdinv, pullup);
+  if (cfg & tilesel_mask)
+    printf("floating");
+  else
+    printf("%u", (set & tilesel_mask) >> (PIN_A5_TILESEL0&0xF));
 }
 
 const char *get_pin_location(unsigned pin)
@@ -779,18 +654,74 @@ const char *get_pin_name(unsigned pin)
     return 0;
 }
 
-#define ADC_DO_CONV_START     ((0xA)<<2)
-#define ADC_DO_STANDBY        ((0xB)<<2)
-#define ADC_DO_SHUTDOWN       ((0xC)<<2)
-#define ADC_DO_SHUTDOWN_FULL  ((0xD)<<2)
-#define ADC_DO_RESET          ((0xE)<<2)
-#define ADC_DO_READ(a)        ((((a)&0xF)<<2)|1)
-#define ADC_DO_WRITE_BURST(a) ((((a)&0xF)<<2)|2)
-#define ADC_DO_READ_BURST(a)  ((((a)&0xF)<<2)|3)
-
-extern int adc_spi_speed;
 int adc_probe()
 {
+  // the ADC can have one of 4 addresses, which'll get sent in reply to 
+  // the 1st byte
+  adc_addr = -1;
+  if (adc_spi_speed < 1000)
+    return -1;
+  if (spi_get_baudrate(SPI_ADC) != adc_spi_speed)
+    spi_set_baudrate(SPI_ADC, adc_spi_speed);
+  // attempt all 4 possible addresses with a dummy command
+  uint8_t cmd, resp;
+  // to the command word, the response will be
+  // {0, 0, cmd[7], cmd[6], ~cmd[6], data_ready#, crc_en#, por_int#}
+  uint8_t expected_resp, cmp_mask = 0x38;
+  for (unsigned addr = 0; addr < 4; ++addr) {
+    cmd = (addr<<6)|ADC_DO_READ(0);
+    expected_resp = addr << 4;
+    if (! (addr & 1))
+      expected_resp |= 1 << 3;
+    resp = 0xff;
+    gpio_put(PIN_ADC_SSn, 0);
+    spi_write_read_blocking(SPI_ADC, &cmd, &resp, 1);
+    gpio_put(PIN_ADC_SSn, 1);
+#   ifdef DEBUG
+    printf ("ADC: addr %u: cmd=%02X resp=%02X exp_resp=%02X|mask=%02X\n", addr, cmd, resp, expected_resp, cmp_mask);
+#   endif
+    if ((resp & cmp_mask) == expected_resp) {
+      adc_addr = addr;
+      return addr;
+    }
+  }
+  return -1;
+}
+
+#define ADCR_ADCDATA   0x0
+#define ADCR_CONFIG0   0x1
+#define ADCR_CONFIG1   0x2
+#define ADCR_CONFIG2   0x3
+#define ADCR_CONFIG3   0x4
+#define ADCR_IRQ       0x5
+#define ADCR_MUX       0x6
+#define ADCR_SCAN      0x7
+#define ADCR_TIMER     0x8
+#define ADCR_OFFSETCAL 0x9
+#define ADCR_GAINCAL   0xA
+#define ADCR_LOCK      0xD
+#define ADCR_CRCCFG    0xF
+
+// size of every register, in bits (for ADCDATA, it can be 1/2/4)
+uint8_t adc_rsize[16] = { 4, 1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 1, 1, 2, 2 };
+
+struct __attribute__((packed)) adcregs_s {
+  uint32_t adcdata;
+  uint8_t config[4];
+  uint8_t irq, mux;
+  uint32_t scan, timer, offsetcal, gaincal;
+  uint32_t dummyB;
+  uint8_t dummyC;
+  uint8_t lock;
+  uint16_t dummyE;
+  uint16_t crccfg;
+};
+
+//#define ADC_DO_READ(a)        ((((a)&0xF)<<2)|1)
+//#define ADC_DO_WRITE_BURST(a) ((((a)&0xF)<<2)|2)
+//#define ADC_DO_READ_BURST(a)  ((((a)&0xF)<<2)|3)
+
+int do_adc_getregs() {
   // the ADC can have one of 4 addresses, which'll get sent in reply to 
   // the 1st byte
   if (adc_spi_speed < 1000)
