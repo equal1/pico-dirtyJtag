@@ -56,6 +56,7 @@ enum CommandIdentifier {
   CMD_ADC_GETREGS = 0x10, // DirtyJTAG extension: get all ADC registers
   CMD_ADC_CHREAD = 0x11, // DirtyJTAG extension: do a read on a single channel
   CMD_ADC_CHREAD_ALL = 0x12, // DirtyJTAG extension: do a read on all 4 channels
+  CMD_ADC_SETREG = 0x13, // DirtyJTAG extension: set a single ADC register
 };
 
 enum CommandModifier
@@ -372,14 +373,16 @@ int iox_pullup_all(uint32_t all);
 // ADC lock
 #define ADC_LOCK_MAGIC 0xA5 // if anything else, write access restricted to the LOCK register
 
+// magic channel number for reading temperature
+#define CH_TEMP 0x3C
+
 // structure for reporting the reg contents to the client
 struct adcregs_s {
-  uint32_t adcdata;
+  uint32_t adcdata, crccfg;
+  uint32_t scan, timer, offsetcal, gaincal;
   uint8_t config[4];
   uint8_t irq, mux;
-  uint32_t scan, timer, offsetcal, gaincal;
   uint8_t lock;
-  uint16_t crccfg;
   uint8_t cmd, cmd_resp;
 };
 
@@ -390,7 +393,10 @@ extern int adc_addr;
 int adc_probe();
 
 // read all regs; writes out and adcregs_s structure, returns the number of bytes
-int do_adc_getregs(uint8_t *dest);
+int do_adc_get_regs(uint8_t *dest);
+
+// set a single register
+int do_adc_set_reg(int which, uint32_t value);
 
 // read on a specific channel
-int do_adc_chread(uint8_t *dest, unsigned ch);
+int do_adc_chreads(uint8_t *dest, unsigned bmp);
