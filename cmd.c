@@ -382,7 +382,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       ++cmdpos;
       break;
     case CMD_ADC_CHREAD:
-      cmd_printf (" %c# @%u ADC_CHREAD %u\n", buf, cmdpos, cmdbuf[cmdpos+1] & 3);
+      cmd_printf (" %c# @%u ADC_CHREAD %u\n", buf, cmdpos, cmdbuf[cmdpos+1] & 0xf);
       // need to do this here - CHREAD_ALL calls do_adc_chread in a loop
       while (eth_busy) // wait for the other core to finish whatever it's doing on ETH
         ;
@@ -390,7 +390,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       // if the W5500 was selected, de-select it!
       if (spi_get_baudrate(SPI_ADC) != adc_spi_speed)
         spi_set_baudrate(SPI_ADC, adc_spi_speed);
-      m = do_adc_chread(respbuf+resppos, cmdbuf[cmdpos+1] & 3);
+      m = do_adc_chread(respbuf+resppos, cmdbuf[cmdpos+1]);
       // release the SPI
       adc_busy = 0;
       if (! m)
@@ -714,14 +714,14 @@ const char *get_pin_name(unsigned pin)
 //#define DEBUG
 
 // force the most recent channel to be set on the 1st read
-int last_adc_ch;
+int last_adc_mux;
 
 int adc_probe()
 {
   // the ADC can have one of 4 addresses, which'll get sent in reply to 
   // the 1st byte
   adc_addr = -1;
-  last_adc_ch = -1;
+  last_adc_mux = 0x88;
   if (adc_spi_speed < 1000)
     return -1;
   while (eth_busy) // wait for the other core to finish whatever it's doing on ETH
@@ -777,6 +777,7 @@ int adc_probe()
   // default to measuring temperature - doesn't matter, since read_ch and read_ch_all set this
   cmds[6] = (ADC_MUXVAL_DIODE_P << ADC_MUX_VINP_SEL_POS) |
             (ADC_MUXVAL_DIODE_M << ADC_MUX_VINN_SEL_POS);
+  last_adc_mux = cmds[6];
   // we're not using scanning mode, so leave the following regs alone
 
   // perform the initial programming
@@ -876,15 +877,21 @@ int do_adc_chread(uint8_t *dest, unsigned ch)
   // in chread_all!!!
 
   // change the mux if needed
-  ch &= 3;
+  int mux;
+  if (ch == CH_TEMP)
+    mux = (ADC_MUXVAL_DIODE_P << ADC_MUX_VINP_SEL_POS) |
+          (ADC_MUXVAL_DIODE_M << ADC_MUX_VINN_SEL_POS);
+
+  else
+    mux = (ADC_MUXVAL_CH(ch&0xF) << ADC_MUX_VINP_SEL_POS) |
+          (ADC_MUXVAL_AGND << ADC_MUX_VINN_SEL_POS);
   uint8_t cmd[8], data[8];
-  if (last_adc_ch != ch) {
+  if (last_adc_mux != mux) {
     cmd[0] = (adc_addr << 6) | ADC_DO_WRITE_BURST(ADCR_MUX);
-    cmd[1] = (ADC_MUXVAL_CH(ch) << ADC_MUX_VINP_SEL_POS) |
-             (ADC_MUXVAL_AGND << ADC_MUX_VINN_SEL_POS);
+    cmd[1] = mux;
     gpio_put(PIN_ADC_SSn, 0); spi_write_read_blocking(SPI_ADC, cmd, data, 2); gpio_put(PIN_ADC_SSn, 1);
-    printf ("set ADC channel to %u\n", ch);
-    last_adc_ch = ch;
+    printf ("set MUX to %02X (ch.%u\n", mux, ch);
+    last_adc_mux = mux;
   }
   // issue a fast conversion
   cmd[0] = (adc_addr << 6) | ADC_DO_CONV_START;

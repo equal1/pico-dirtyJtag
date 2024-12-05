@@ -358,7 +358,7 @@ int iox_pullup_all(uint32_t all);
 #define ADC_MUX_VINN_SEL_MASK (0xF<<0)
 
 // these are the values for either mux
-#define ADC_MUXVAL_CH(n)      ((n)&7) // select channel
+#define ADC_MUXVAL_CH(n)      ((n)&0xF) // select channel; shouldn't be used with >= 8 though
 #define ADC_MUXVAL_AGND       0x8
 #define ADC_MUXVAL_AVDD       0x9
 #define ADC_MUXVAL_REFINP_OUT 0xB // REFIN+/OUT
@@ -391,6 +391,8 @@ int adc_probe();
 
 // read all regs; writes out and adcregs_s structure, returns the number of bytes
 int do_adc_getregs(uint8_t *dest);
+
+#define CH_TEMP 0x3C
 
 // read on a specific channel
 int do_adc_chread(uint8_t *dest, unsigned ch);
