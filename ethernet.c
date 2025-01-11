@@ -15,9 +15,9 @@
 #include "w5500.h"
 #include "socket.h"
 #include "dhcp.h"
-#include "led.h"
+#include "utils.h"
 
-#include "dirtyJtagConfig.h"
+#include "config.h"
 
 // MAC address (implemented in LwIP port)
 uint8_t mac[6];
@@ -74,8 +74,8 @@ static char eth_listen_port[] = "111.111.111.111:12345",
             eth_connected_port[] = "222.222.222.222:23456";
 static char eth_hostname[] = "pico-0123456789abcdef";
 
-static void w5500_spi_init();
-static void w5500_dma_init();
+static void eth_spi_init();
+static void eth_dma_init();
 static void network_init();
 
 // main callback, updates the ID part
@@ -89,18 +89,18 @@ static void eth_crc32_wait();
 
 static int client_uses_crc32;
 
-extern volatile int adc_busy, eth_busy;
+volatile uint8_t eth_busy;
+int eth_spi_speed;
 
-extern int eth_spi_speed;
-static void w5500_on_irq(uint, uint32_t);
-static void w5500_select();
-static void w5500_deselect();
-static uint8_t w5500_read();
-static void w5500_write(uint8_t);
-static void w5500_dma_init();
-static void w5500_block_read(uint8_t*, uint16_t);
-static void w5500_block_write(uint8_t*, uint16_t);
-static int w5500_set_spi_speed(unsigned speed);
+static void eth_on_irq(uint, uint32_t);
+static void eth_select();
+static void eth_deselect();
+static uint8_t eth_read();
+static void eth_write(uint8_t);
+static void eth_dma_init();
+static void eth_block_read(uint8_t*, uint16_t);
+static void eth_block_write(uint8_t*, uint16_t);
+static int eth_set_spi_speed(unsigned speed);
 
 int eth_init(uint64_t uid)
 {
@@ -120,17 +120,17 @@ int eth_init(uint64_t uid)
   eth_status = ETH_NONE;
   eth_busy = 0;
   // initial configuration of the W5500 interface
-  w5500_dma_init();
-  w5500_spi_init();
+  eth_dma_init();
+  eth_spi_init();
 
   // initialize the Ethernet chip itself
-  reg_wizchip_cs_cbfunc(w5500_select, w5500_deselect); // chip select control
-  reg_wizchip_spi_cbfunc(w5500_read, w5500_write); // receive/send
-  reg_wizchip_spiburst_cbfunc(w5500_block_read, w5500_block_write); // receive/send block
+  reg_wizchip_cs_cbfunc(eth_select, eth_deselect); // chip select control
+  reg_wizchip_spi_cbfunc(eth_read, eth_write); // receive/send
+  reg_wizchip_spiburst_cbfunc(eth_block_read, eth_block_write); // receive/send block
   // grab the chip name (can't fail)
 	ctlwizchip (CW_GET_ID, dhcp_buf);
   // try to find the maximum frequency at which the chip would talk to us
-  while (! w5500_set_spi_speed(eth_spi_speed)) {
+  while (! eth_set_spi_speed(eth_spi_speed)) {
     // if we're >= 10MHz, decrease by 1MHz
     if (eth_spi_speed >= 10000000)
       eth_spi_speed -= 1000000;
@@ -158,14 +158,14 @@ int eth_init(uint64_t uid)
   notify_ip_config(0, eth_macaddr, eth_hostname, 0, 0);
   eth_status = ETH_NO_LINK;
   // only keep the LED on when we have the IP connection up
-  set_led(0);
+  set_led(LED_ETHERNET, 0);
   return 0;
 }
 
-static int w5500_init();
+static int eth_config();
 
 typedef void (*socket_handler_t)(unsigned, unsigned);
-static void w5500_config_socket_irq(unsigned socket, socket_handler_t handler);
+static void eth_config_socket_irq(unsigned socket, socket_handler_t handler);
 
 // DHCP event handlers
 static repeating_timer_t dhcp_timer;
@@ -250,7 +250,7 @@ void eth_task() {
     //printf ("eth: requesting IP address...\n");
     add_repeating_timer_ms (1000, every_1s, 0, &dhcp_timer);
     // no messing with IRQs, thank you very much!
-    // w5500_config_socket_irq(SOCKET_DHCP, on_dhcp_irq);
+    // eth_config_socket_irq(SOCKET_DHCP, on_dhcp_irq);
 		DHCP_init(SOCKET_DHCP, dhcp_buf);
 		reg_dhcp_cbfunc(on_dhcp_assign, on_dhcp_update, on_dhcp_conflict);
     eth_status = ETH_WAIT_DHCP;
@@ -265,7 +265,7 @@ void eth_task() {
 		case DHCP_IP_ASSIGN:
 		case DHCP_IP_CHANGED:
 		case DHCP_IP_LEASED:
-      set_led(1);
+      set_led(LED_ETHERNET, 1);
       eth_status = ETH_READY;
 			break;
 		case DHCP_FAILED:
@@ -695,7 +695,7 @@ bool every_1s(repeating_timer_t *rt)
   DHCP_time_handler();
   // toggle the LED every second while waiting for DHCP
   if (eth_status < ETH_READY)
-    toggle_led();
+    toggle_led(LED_ETHERNET);
   return true;
 }
 
@@ -705,11 +705,11 @@ bool every_100ms(repeating_timer_t *rt)
 {
   // toggle the LED every second while waiting for DHCP
   if (eth_status == ETH_FATAL)
-    toggle_led();
+    toggle_led(LED_ETHERNET);
   return true;
 }
 
-void w5500_spi_init()
+void eth_spi_init()
 {
   // configure CS#
   gpio_init(PIN_ETH_CSn);
@@ -726,7 +726,7 @@ void w5500_spi_init()
   gpio_set_dir(PIN_ETH_INTn, GPIO_IN);
   gpio_put(PIN_ETH_INTn, 0);
   bi_decl(bi_1pin_with_name(PIN_ETH_INTn, "ETH_INT#"));
-  //gpio_set_irq_enabled_with_callback(PIN_W5500_INTn, GPIO_IRQ_EDGE_FALL, true, w5500_on_irq);
+  //gpio_set_irq_enabled_with_callback(PIN_ETH_INTn, GPIO_IRQ_EDGE_FALL, true, eth_on_irq);
   // configure SPI itself - mode 0
   spi_init(SPI_ETH, FREQ_ETH_KHZ * 1000);
   eth_spi_speed = spi_get_baudrate(SPI_ETH);
@@ -739,7 +739,7 @@ void w5500_spi_init()
 }
 
 
-int w5500_set_spi_speed(unsigned speed) {
+int eth_set_spi_speed(unsigned speed) {
 # if 0
   printf ("W5500: attempting SPI at %u.%03uMHz...\n", 
           (eth_spi_speed+500)/1000000, ((eth_spi_speed+500)%1000000/1000) );
@@ -790,7 +790,7 @@ static int check_link()
   if (eth_link_state == PHY_LINK_OFF) {
     if (eth_status == ETH_NO_LINK)
       return 0;
-    set_led(0);
+    set_led(LED_ETHERNET, 0);
     notify_ip_config(0, eth_macaddr, eth_hostname, 0, 0);
     //printf ("eth: %s PHY link\n", (eth_status == ETH_NONE) ? "no" : "lost");
     // attempt to close the server socket
@@ -1098,7 +1098,7 @@ uint16_t socket_irq_enabled = 0;
 uint8_t socket_intmask[8], socket_interrupt[8];
 socket_handler_t socket_handlers[8];
 
-void w5500_config_socket_irq(unsigned socket, socket_handler_t handler)
+void eth_config_socket_irq(unsigned socket, socket_handler_t handler)
 {
   uint16_t skt_en;
   if (handler) {
@@ -1122,7 +1122,7 @@ void w5500_config_socket_irq(unsigned socket, socket_handler_t handler)
   }
 }
 
-void w5500_on_irq(uint gpio, uint32_t events)
+void eth_on_irq(uint gpio, uint32_t events)
 {
   // get the chip interrupts
   uint16_t cwirq;
@@ -1170,7 +1170,7 @@ void w5500_on_irq(uint gpio, uint32_t events)
 
 
 // SPI functions
-void w5500_select(void)
+void eth_select(void)
 {
   while (adc_busy) // if the ADC is running on the other core, wait for it to finish
     ;
@@ -1181,29 +1181,30 @@ void w5500_select(void)
   gpio_put(PIN_ETH_CSn, 0);
 }
 
-void w5500_deselect(void)
+void eth_deselect(void)
 {
   gpio_put(PIN_ETH_CSn, 1);
   eth_busy = 0;
 }
 
-uint8_t w5500_read(void)
+uint8_t eth_read(void)
 {
   uint8_t rx_data = 0;
-  uint8_t tx_data = 0xFF;
-  spi_read_blocking(SPI_ETH, tx_data, &rx_data, 1);
+  spi_read_blocking(SPI_ETH, 0xff, &rx_data, 1);
   return rx_data;
 }
 
-void w5500_write(uint8_t tx_data)
+void eth_write(uint8_t tx_data)
 {
   spi_write_blocking(SPI_ETH, &tx_data, 1);
 }
 
-static uint eth_dma_tx, eth_dma_rx;
-static dma_channel_config eth_dma_tx_cfg, eth_dma_rx_cfg;
+static uint
+  eth_dma_tx, eth_dma_rx;
+static dma_channel_config
+  eth_dma_tx_cfg, eth_dma_rx_cfg;
 
-void w5500_dma_init()
+void eth_dma_init()
 {
   eth_dma_tx = dma_claim_unused_channel(true);
   eth_dma_tx_cfg = dma_channel_get_default_config(eth_dma_tx);
@@ -1217,7 +1218,7 @@ void w5500_dma_init()
   channel_config_set_read_increment(&eth_dma_rx_cfg, false);
 }
 
-void w5500_block_read(uint8_t *pBuf, uint16_t len)
+void eth_block_read(uint8_t *pBuf, uint16_t len)
 {
   // use spi_read_blocking() for small blocks
   if (len <= 16) {
@@ -1229,20 +1230,20 @@ void w5500_block_read(uint8_t *pBuf, uint16_t len)
   channel_config_set_read_increment(&eth_dma_tx_cfg, false);
   dma_channel_configure(eth_dma_tx, &eth_dma_tx_cfg,
                         &spi_get_hw(SPI_ETH)->dr, // write address
-                        &dummy_data,                // read address
-                        len,                        // element count (each element is of size transfer_data_size)
-                        false);                     // don't start yet
+                        &dummy_data,              // read address
+                        len,                      // element count (each element is of size transfer_data_size)
+                        false);                   // don't start yet
   channel_config_set_write_increment(&eth_dma_rx_cfg, true);
   dma_channel_configure(eth_dma_rx, &eth_dma_rx_cfg,
-                        pBuf,                       // write address
+                        pBuf,                     // write address
                         &spi_get_hw(SPI_ETH)->dr, // read address
-                        len,                        // element count (each element is of size transfer_data_size)
-                        false);                     // don't start yet
+                        len,                      // element count (each element is of size transfer_data_size)
+                        false);                   // don't start yet
   dma_start_channel_mask((1u << eth_dma_tx) | (1u << eth_dma_rx));
   dma_channel_wait_for_finish_blocking(eth_dma_rx);
 }
 
-void w5500_block_write(uint8_t *pBuf, uint16_t len)
+void eth_block_write(uint8_t *pBuf, uint16_t len)
 {
   // use spi_read_blocking() for small blocks
   if (len <= 16) {
@@ -1254,15 +1255,15 @@ void w5500_block_write(uint8_t *pBuf, uint16_t len)
   channel_config_set_read_increment(&eth_dma_tx_cfg, true);
   dma_channel_configure(eth_dma_tx, &eth_dma_tx_cfg,
                         &spi_get_hw(SPI_ETH)->dr, // write address
-                        pBuf,                       // read address
-                        len,                        // element count (each element is of size transfer_data_size)
-                        false);                     // don't start yet
+                        pBuf,                     // read address
+                        len,                      // element count (each element is of size transfer_data_size)
+                        false);                   // don't start yet
   channel_config_set_write_increment(&eth_dma_rx_cfg, false);
   dma_channel_configure(eth_dma_rx, &eth_dma_rx_cfg,
-                        &dummy_data,                // write address
+                        &dummy_data,              // write address
                         &spi_get_hw(SPI_ETH)->dr, // read address
-                        len,                        // element count (each element is of size transfer_data_size)
-                        false);                     // don't start yet
+                        len,                      // element count (each element is of size transfer_data_size)
+                        false);                   // don't start yet
   dma_start_channel_mask((1u << eth_dma_tx) | (1u << eth_dma_rx));
   dma_channel_wait_for_finish_blocking(eth_dma_rx);
 }

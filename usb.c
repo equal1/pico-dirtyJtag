@@ -25,7 +25,7 @@
 
 #include <stdint.h>
 #include <string.h>
-#include "dirtyJtagConfig.h"
+#include "config.h"
 #include <tusb.h>
 
 //#define USB_BCD   0x0110
@@ -34,8 +34,7 @@
 #define USB_VENDOR 0x1209
 #define USB_DEVICE 0xC0CB
 #define STR_VENDOR "equal1"
-#define STR_DEVICE "DirtyJTAG2"
-#define CDC_PREFIX "DirtyJTAG2 CDC "
+#define STR_DEVICE "JTAG"
 
 
 /* C string for iSerialNumber in USB Device Descriptor, two chars per byte + terminating NUL */

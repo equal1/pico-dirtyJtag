@@ -31,10 +31,12 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 add_executable(dirtyJtag
-		dirtyJtag.c
-		pio_jtag.c
+		main.c
 		cmd.c
-		led.c
+		pio_jtag.c
+		a5pins.c
+		adc.c
+		utils.c
 		usb.c
 		ethernet.c
 )

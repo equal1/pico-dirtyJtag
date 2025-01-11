@@ -1,9 +1,9 @@
 #include <hardware/clocks.h>
-#include "hardware/dma.h"
+#include <hardware/dma.h>
 #include "pio_jtag.h"
+#include "config.h"
 #include "jtag.pio.h"
 #include "a5clk.pio.h"
-#include "dirtyJtagConfig.h"
 
 // we use multicore, so all the JTAG tasks run on core 1 _while_ core 0
 // processes I/O
@@ -13,7 +13,7 @@ static int rx_dma_chan;
 static dma_channel_config tx_c;
 static dma_channel_config rx_c;
 
-void dma_init()
+void jtag_dma_init()
 {
   if (tx_dma_chan == -1) {
     // Configure a channel to write a buffer to PIO0
@@ -56,7 +56,7 @@ void __time_critical_func(pio_jtag_write_blocking)
   //kick off the process by sending the len to the tx pipeline
   *(io_rw_32*)txfifo = len-1;
   if (byte_length > 4) {
-    dma_init();
+    jtag_dma_init();
     channel_config_set_read_increment(&tx_c, true);
     channel_config_set_write_increment(&rx_c, false);
     dma_channel_set_config(rx_dma_chan, &rx_c, false);
@@ -93,7 +93,7 @@ void __time_critical_func(pio_jtag_write_read_blocking)
   //kick off the process by sending the len to the tx pipeline
   *(io_rw_32*)txfifo = len-1;
   if (byte_length > 4) {
-    dma_init();
+    jtag_dma_init();
     channel_config_set_read_increment(&tx_c, true);
     channel_config_set_write_increment(&rx_c, true);
     dma_channel_set_config(rx_dma_chan, &rx_c, false);
@@ -135,7 +135,7 @@ uint8_t __time_critical_func(pio_jtag_write_tms_blocking)
   //kick off the process by sending the len to the tx pipeline
   *(io_rw_32*)txfifo = len-1;
   if (byte_length > 4) {
-    dma_init();
+    jtag_dma_init();
     channel_config_set_read_increment(&tx_c, false);
     channel_config_set_write_increment(&rx_c, false);
     dma_channel_set_config(rx_dma_chan, &rx_c, false);
@@ -177,10 +177,8 @@ static void init_jtag_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tm
 
 static void init_a5clk_pin(uint pin)
 {
-# if BOARD_TYPE == BOARD_E1
   gpio_clr_mask(1u << pin);
   gpio_init_mask(1u << pin);
-# endif
 }
 
 void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst)

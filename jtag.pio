@@ -1,5 +1,6 @@
 ;JTAG implementation
 
+.pio_version 0 // only require PIO version 0
 .program djtag_tdo
 .side_set 1 opt
 
@@ -20,32 +21,44 @@ loop:
     in pins, 1      side 1 [1] 
     jmp x-- loop    side 0
     push            side 0      ; Force the last ISR bits to be pushed to the tx fifo
+
 % c-sdk {
 #include "hardware/gpio.h"
-static inline void pio_jtag_init(PIO pio, uint sm,
-        unsigned clkdiv, uint pin_tck, uint pin_tdi, uint pin_tdo) {
-    uint prog_offs = pio_add_program(pio, &djtag_tdo_program);
-    pio_sm_config c = djtag_tdo_program_get_default_config(prog_offs);
-    sm_config_set_out_pins(&c, pin_tdi, 1);
-    sm_config_set_in_pins(&c, pin_tdo);
-    sm_config_set_sideset_pins(&c, pin_tck);
-    //(shift to left, auto push/pull, threshold=nbits)
-    sm_config_set_out_shift(&c, false, true, 8);
-    sm_config_set_in_shift(&c, false, true, 8);
-    sm_config_set_clkdiv_int_frac(&c, clkdiv >> 8, clkdiv & 0xff);
+static inline void
+pio_jtag_init(PIO pio, uint sm, unsigned clkdiv,
+              uint pin_tck, uint pin_tdi, uint pin_tdo)
+{
+  // load the JTAG program into the PIO
+  uint prog_offs = pio_add_program(pio, &djtag_tdo_program);
+  pio_sm_config c = djtag_tdo_program_get_default_config(prog_offs);
+  // output on TDI, input on TDO, clock on TCK
+  sm_config_set_out_pins(&c, pin_tdi, 1);
+  sm_config_set_in_pins(&c, pin_tdo);
+  sm_config_set_sideset_pins(&c, pin_tck);
+  // configure as: shift to left auto push/pull, threshold=nbits
+  sm_config_set_out_shift(&c, false, true, 8);
+  sm_config_set_in_shift(&c, false, true, 8);
+  // configure clock
+  sm_config_set_clkdiv_int_frac(&c, clkdiv >> 8, clkdiv & 0xff);
 
-    // TDI, TCK output are low, TDO is input
-    pio_sm_set_pins_with_mask(pio, sm, 0, (1u << pin_tck) | (1u << pin_tdi));
-    pio_sm_set_pindirs_with_mask(pio, sm, (1u << pin_tck) | (1u << pin_tdi), (1u << pin_tck) | (1u << pin_tdi) | (1u << pin_tdo));
-    pio_gpio_init(pio, pin_tdi);
-    //pio_gpio_init(pio, pin_tdo);
-    pio_gpio_init(pio, pin_tck);
+  // TDI, TCK output are low, TDO is input
+  pio_sm_set_pins_with_mask(pio, sm, 0, (1 << pin_tck) | (1 << pin_tdi));
+  pio_sm_set_pindirs_with_mask(pio, sm, 
+                               (1 << pin_tck) | (1 << pin_tdi) | (0 << pin_tdo),
+                               (1 << pin_tck) | (1 << pin_tdi) | (1 << pin_tdo));
+  // initialize TCK, TDI, TDO as PIO pins
+  // (TDO too - seems required for Pico v2, even though on Pico v1 it wasn't necessary)
+  // also, weak pull-down on TDO
+  pio_gpio_init(pio, pin_tck);
+  pio_gpio_init(pio, pin_tdi);
+  pio_gpio_init(pio, pin_tdo);
+  gpio_set_pulls(pin_tdo, false, true);
 
+  // jtag is synchronous, so bypass input synchroniser to reduce input delay.
+  hw_set_bits(&pio->input_sync_bypass, 1u << pin_tdo);
 
-    // jtag is synchronous, so bypass input synchroniser to reduce input delay.
-    hw_set_bits(&pio->input_sync_bypass, 1u << pin_tdo);
-    gpio_set_pulls(pin_tdo, false, true); //TDO is pulled down
-    pio_sm_init(pio, sm, prog_offs, &c);
-    pio_sm_set_enabled(pio, sm, true);
+  // initialize and enable the JTAG SM
+  pio_sm_init(pio, sm, prog_offs, &c);
+  pio_sm_set_enabled(pio, sm, true);
 }
 %}

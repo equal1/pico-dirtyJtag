@@ -11,11 +11,12 @@
 #include <bsp/board.h>
 #include <tusb.h>
 #include "pio_jtag.h"
-#include "led.h"
+#include "utils.h"
 #include "cmd.h"
+#include "adc.h"
 #include "git.h"
 
-#include "dirtyJtagConfig.h"
+#include "config.h"
 
 //#define DEBUG
 
@@ -92,35 +93,10 @@ void iox_init()
   }
 }
 
-int adc_spi_speed, adc_addr;
-int adc_probe();
-void adc_init()
-{
-  // configure CS#
-  gpio_init(PIN_ADC_SSn);
-  gpio_put(PIN_ADC_SSn, 1); // initially de-selected
-  gpio_set_dir(PIN_ADC_SSn, GPIO_OUT);
-  bi_decl(bi_1pin_with_name(PIN_ADC_SSn, "ADC_SS#"));
-  // configure SPI itself - mode 0
-  spi_init(SPI_ADC, FREQ_ADC_KHZ * 1000);
-  spi_set_format (SPI_ADC, 8, 0, 0, 0);
-  // configure the SPI pins
-  gpio_set_function(PIN_ADC_SCK, GPIO_FUNC_SPI);
-  gpio_set_function(PIN_ADC_MOSI, GPIO_FUNC_SPI);
-  gpio_set_function(PIN_ADC_MISO, GPIO_FUNC_SPI);
-  bi_decl(bi_3pins_with_func(PIN_ADC_MISO, PIN_ADC_MOSI, PIN_ADC_SCK, GPIO_FUNC_SPI));
-  adc_spi_speed = spi_get_baudrate(SPI_ADC);
-  if (adc_probe() < 0) {
-    //printf ("ADC does NOT work at %u.%uMHz!\n", (adc_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000);
-    adc_spi_speed = 0;
-  }
-}
-
 int a5_pico_pins_init();
 int a5_iox_pins_init();
 
 // in ethernet.c
-int eth_spi_speed;
 int eth_init(uint64_t);
 // in usb.c
 int usb_init(uint64_t);
@@ -209,8 +185,6 @@ static const char *location_of(void *ptr)
 
 //-----------------------------------------------------------------------------
 
-volatile int adc_busy, eth_busy;
-
 int main()
 {
   board_init();
@@ -236,7 +210,7 @@ int main()
   // initialize the header
   sprintf (whoami,
             "equal1 JTAG (%s, %s%s %s)\n",
-            git_Branch, git_Describe, git_AnyUncommittedChanges?"|dirty":"",
+            git_Branch, git_Describe, git_AnyUncommittedChanges?"(dirty)":"",
              git_Remote);
   sprintf(whoami + strlen(whoami),
           "  running from %s on %s @%u.%uMHz, host board %s\n",

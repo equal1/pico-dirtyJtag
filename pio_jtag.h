@@ -1,8 +1,7 @@
-#ifndef _PIO_JTAG_H
-#define _PIO_JTAG_H
+#pragma once
 
-#include "hardware/pio.h"
-#include "dirtyJtagConfig.h"
+#include <hardware/pio.h>
+#include "config.h"
 
 typedef struct pio_jtag_inst {
     PIO pio;
@@ -68,5 +67,3 @@ void jtag_set_tdi(const pio_jtag_inst_t *jtag, bool value);
 void jtag_set_clk(const pio_jtag_inst_t *jtag, bool value);
 
 bool jtag_get_tdo(const pio_jtag_inst_t *jtag);
-
-#endif

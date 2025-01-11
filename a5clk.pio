@@ -1,5 +1,6 @@
 ;A5CLK implementation
 
+.pio_version 0 // only require PIO version 0
 .program djtag_a5clk
 .side_set 1
 
@@ -9,9 +10,11 @@
 ; Autopush and autopull must be enabled, and the serial frame size is set by
 ; configuring the push/pull threshold (32 bits). Shift should be left
 
-loop:
-    set x, 0 side 0 ; effectively a nop, but drives a5clk low
-    jmp loop side 1 ; iterate, driving a5clk high
+.wrap_target
+    nop side 0
+    nop side 1
+.wrap
+
 % c-sdk {
 #include "hardware/gpio.h"
 static inline void pio_a5clk_init(PIO pio, uint sm,
@@ -28,7 +31,6 @@ static inline void pio_a5clk_init(PIO pio, uint sm,
     pio_sm_set_pins_with_mask(pio, sm, 0, (1u << pin));
     pio_sm_set_pindirs_with_mask(pio, sm, (1u << pin), (1u << pin));
     pio_gpio_init(pio, pin);
-
 
     // bypass input synchroniser to reduce input delay
     pio_sm_init(pio, sm, prog_offs, &c);

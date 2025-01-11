@@ -93,6 +93,7 @@ CHECK_REQUIRED_VARIABLE(GIT_EXECUTABLE)
 
 
 set(_state_variable_names
+    BUILD_TIME
     GIT_RETRIEVED_STATE
     GIT_HEAD_SHA1
     GIT_IS_DIRTY
@@ -148,6 +149,13 @@ function(GetGitState _working_dir)
     # This is an error code that'll be set to FALSE if the
     # RunGitCommand ever returns a non-zero exit code.
     set(ENV{GIT_RETRIEVED_STATE} "true")
+
+    # grab the current date/time
+    execute_process(COMMAND date -Iseconds
+        RESULT_VARIABLE exit_code
+        OUTPUT_VARIABLE now
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(ENV{BUILD_TIME} "${now}")
 
     # Get whether or not the working tree is dirty.
     if (GIT_IGNORE_UNTRACKED)
@@ -370,3 +378,4 @@ endfunction()
 
 # And off we go...
 Main()
+

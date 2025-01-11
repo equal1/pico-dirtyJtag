@@ -1,24 +1,4 @@
-#ifndef DirtyJtagConfig_h
-#define DirtyJtagConfig_h
-
-// Set to 0 to disable USB-CDC-UART bridge
-#define USB_CDC_UART_BRIDGE  0
-
-#define BOARD_PICO           0
-#define BOARD_RP2040_ZERO    5
-#define BOARD_E1           6
-
-#define BOARD_TYPE BOARD_E1
-
-// General mapping
-// TDI  SPIO RX
-// TDO  SPIO TX
-// TCK  SPIO SCK
-// TMS  SPIO CS
-// RST  GPIO
-// TRST GPIO
-
-#if ( BOARD_TYPE == BOARD_E1 )
+#pragma once
 
 // equal1 jtag
 
@@ -96,29 +76,18 @@
 #define PIN_A5_GPIO6   22 // GP22, header.29
 
 // pins on IOX
-#define PIN_A5_GPIO7    (0x40|3)  // P4,  iox.6
-#define PIN_A5_CLKSRC   (0x40|4)  // P4,  iox.7
-#define PIN_A5_TILESEL0 (0x40|5)  // P5,  iox.8
-#define PIN_A5_TILESEL1 (0x40|6)  // P6,  iox.10
-#define PIN_A5_TESTEN   (0x40|7)  // P7,  iox.11
-#define PIN_A5_GPIO8    (0x40|8)  // P8,  iox.13
-#define PIN_A5_GPIO9    (0x40|9)  // P9,  iox.14
-#define PIN_A5_GPIO11   (0x40|10) // P10, iox.15
-#define PIN_A5_GPIO12   (0x40|11) // P11, iox.16
-#define PIN_A5_GPIO13   (0x40|12) // P12, iox.17
-#define PIN_A5_GPIO14   (0x40|13) // P13, iox.18
-#define PIN_A5_GPIO15   (0x40|14) // P14, iox.19
-#define PIN_A5_GPIO16   (0x40|15) // P15, iox.20
-
-#define PIN_A5_IOX_FIRST PIN_A5_GPIO7
-#define PIN_A5_IOX_LAST  PIN_A5_GPIO16
-
-#undef USB_CDC_UART_BRIDGE
-#define USB_CDC_UART_BRIDGE  0
-#define USB_CDC_SPI_BRIDGE  0
-
-#else
-# error Only the e1 jtag supported on this tree
-#endif // BOARD_TYPE
-
-#endif // DirtyJtagConfig_h
+#define IOX_PIN_BASE    0x40
+#define IOX_PIN_COUNT   16
+#define PIN_A5_GPIO7    (IOX_PIN_BASE|3)  // P4,  iox.6
+#define PIN_A5_CLKSRC   (IOX_PIN_BASE|4)  // P4,  iox.7
+#define PIN_A5_TILESEL0 (IOX_PIN_BASE|5)  // P5,  iox.8
+#define PIN_A5_TILESEL1 (IOX_PIN_BASE|6)  // P6,  iox.10
+#define PIN_A5_TESTEN   (IOX_PIN_BASE|7)  // P7,  iox.11
+#define PIN_A5_GPIO8    (IOX_PIN_BASE|8)  // P8,  iox.13
+#define PIN_A5_GPIO9    (IOX_PIN_BASE|9)  // P9,  iox.14
+#define PIN_A5_GPIO11   (IOX_PIN_BASE|10) // P10, iox.15
+#define PIN_A5_GPIO12   (IOX_PIN_BASE|11) // P11, iox.16
+#define PIN_A5_GPIO13   (IOX_PIN_BASE|12) // P12, iox.17
+#define PIN_A5_GPIO14   (IOX_PIN_BASE|13) // P13, iox.18
+#define PIN_A5_GPIO15   (IOX_PIN_BASE|14) // P14, iox.19
+#define PIN_A5_GPIO16   (IOX_PIN_BASE|15) // P15, iox.20
