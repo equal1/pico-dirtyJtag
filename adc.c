@@ -104,7 +104,7 @@ void adc_init()
   adc_cmds[0] = (adc_addr << 6) | ADC_DO_WRITE_BURST(ADCR_CONFIG0);
   // set mode to defaults + standby, don't output MCLK
   adc_cmds[1] = adc_regs[ADCR_CONFIG0].last_val =
-    ADC_CFG0_VREFSEL_INTERNAL | ADC_CFG0_CLKSEL_INT_NOCLK | 
+    /*ADC_CFG0_VREFSEL_INTERNAL |*/ ADC_CFG0_CLKSEL_INT_NOCLK | 
     ADC_CFG0_CSRC_NONE | ADC_CFG0_MODE_STANDBY; 
   adc_cmds[2] = adc_regs[ADCR_CONFIG1].last_val = 
     ADC_CFG1_PRE_NONE | ADC_CFG1_OSR_DEFAULT; // use defaults
