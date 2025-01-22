@@ -11,8 +11,11 @@
 
 //#define DEBUG
 
-volatile uint8_t adc_busy;
-int adc_addr;
+volatile char adc_busy;
+#ifdef SPI_PARANOIA
+volatile char adc_ss;
+#endif
+short adc_addr;
 int adc_spi_speed;
 
 // size of every register, in bits (for ADCDATA, it can be 1/2/4; for CRC, it can be 2/4)
@@ -62,6 +65,51 @@ static uint8_t adc_cmds[ADC_REGMAP_SIZE_MAX], adc_data[ADC_REGMAP_SIZE_MAX];
 
 static int adc_probe();
 
+static void _assert_adc_cs(const char *fn)
+{
+  (void)fn;
+# ifdef SPI_PARANOIA
+  if (! adc_ss)
+    printf ("P: in %s(): ADC CS# already asserted!!!\n", fn);
+# endif
+  gpio_put(PIN_ADC_SSn, 0);
+# ifdef SPI_PARANOIA
+  adc_ss = 0;
+# endif
+}
+#define assert_adc_cs() _assert_adc_cs(__FUNCTION__)
+
+static void _deassert_adc_cs(const char *fn)
+{
+  (void)fn;
+# ifdef SPI_PARANOIA
+  if (adc_ss)
+    printf ("P: in %s(): ADC CS# not yet asserted!!!\n", fn);
+# endif
+  gpio_put(PIN_ADC_SSn, 1);
+# ifdef SPI_PARANOIA
+  adc_ss = 1;
+# endif
+}
+#define deassert_adc_cs() _deassert_adc_cs(__FUNCTION__)
+
+void _check_adc_state(const char *fn)
+{
+  (void)fn;
+# ifdef PARANOID
+  if (! adc_busy)
+    printf("P: %s() called while !adc_busy\n", fn);
+  // it's ok to have eth_busy - it an "hey, I want it" announcement, not a "hey, I have it" statement
+  //if (eth_busy)
+  //  printf("P: %s() called while eth_busy\n", fn);
+  if (adc_ss)
+    printf("P: %s() called while ADC CS# is not yet active\n", fn);
+  if (! eth_ss)
+    printf("P: %s() called while ETH CS# is active\n", fn);
+# endif
+}
+#define check_adc_state() _check_adc_state(__FUNCTION__)
+
 // sets adc_spi_speed to 0, if device not present
 void adc_init()
 {
@@ -69,6 +117,7 @@ void adc_init()
   gpio_init(PIN_ADC_SSn);
   gpio_put(PIN_ADC_SSn, 1); // initially de-selected
   gpio_set_dir(PIN_ADC_SSn, GPIO_OUT);
+  deassert_adc_cs();
   bi_decl(bi_1pin_with_name(PIN_ADC_SSn, "ADC_SS#"));
   // configure SPI itself - mode 0
   spi_init(SPI_ADC, FREQ_ADC_KHZ * 1000);
@@ -88,14 +137,15 @@ void adc_init()
   }
 
   // perform initial configuration
+  claim_spi_for_adc();
 
   // - make sure register writes are unlocked
   adc_cmds[0] = (adc_addr << 6) | ADC_DO_WRITE_BURST(ADCR_LOCK);
   adc_cmds[1] = adc_regs[ADCR_LOCK].last_val = 
     ADC_LOCK_MAGIC;
-  gpio_put(PIN_ADC_SSn, 0);
+  assert_adc_cs();
   spi_write_read_blocking(SPI_ADC, adc_cmds, adc_data, 2);
-  gpio_put(PIN_ADC_SSn, 1);
+  deassert_adc_cs();
 # ifdef DEBUG
   printf("ADC unlock: %02X.%02X -> %02X.%02X\n", adc_cmds[0], adc_cmds[1], adc_cmds[0], adc_cmds[1]);
 # endif
@@ -126,16 +176,19 @@ void adc_init()
   adc_regs[ADCR_OFFSETCAL].last_val = 0;
   adc_regs[ADCR_GAINCAL].last_val = 0;
   // perform the initial programming
-  gpio_put(PIN_ADC_SSn, 0);
+  assert_adc_cs(); check_adc_state();
   spi_write_read_blocking(SPI_ADC, adc_cmds, adc_data, 7+12);
-  gpio_put(PIN_ADC_SSn, 1);
+  deassert_adc_cs();
 # if 0
   // sample the offset
   int offset = 0;
   do_adc_conv((uint8_t*)&offset, ADC_CHID_OFSFET);
   printf ("ADC offset: (%u) %d\n", (unsigned)offset >> 28, (offset << 17) >> 17 );
 # endif
+
+  // we're done with the SPI for now
   release_adc_spi();
+
   // update internal state
   adc_regmap_size = ADC_REGMAP_SIZE_NO_CRC_NO_DATA + 4 + 2;
   n_scan_ch  = 0; first_scan_ch = 16; // SCAN mode disabled initially
@@ -167,9 +220,9 @@ int adc_probe()
     if (! (addr & 1))
       expected_resp |= 1 << 3;
     adc_data[0] = 0xff;
-    gpio_put(PIN_ADC_SSn, 0);
+    assert_adc_cs(); check_adc_state();
     spi_write_read_blocking(SPI_ADC, adc_cmds, adc_data, 1);
-    gpio_put(PIN_ADC_SSn, 1);
+    deassert_adc_cs();
 #   ifdef DEBUG
     printf ("ADC: addr %u: cmd=%02X resp=%02X exp_resp=%02X|mask=%02X\n", addr, 
       adc_cmds[0], adc_data[0], expected_resp, cmp_mask);
@@ -193,9 +246,9 @@ int do_adc_get_regs(uint8_t *dest) {
   memset (adc_cmds, 0xff, sizeof(adc_cmds));
   adc_cmds[0] = (adc_addr << 6) | ADC_DO_READ_BURST(ADCR_CONFIG0);
   // get the registers
-  gpio_put(PIN_ADC_SSn, 0);
+  assert_adc_cs(); check_adc_state();
   spi_write_read_blocking(SPI_ADC, adc_cmds, adc_data, adc_regmap_size);
-  gpio_put(PIN_ADC_SSn, 1);
+  deassert_adc_cs();
   adc_busy = 0;
   uint8_t *pdata = &adc_data[0];
   adc_reg_vals.cmd       = adc_cmds[0];
@@ -293,9 +346,9 @@ int do_adc_set_reg(int which, uint32_t value)
   if (adc_regs[ADCR_LOCK].last_val != ADC_LOCK_MAGIC) {
     adc_cmds[0] = (adc_addr << 6) | ADC_DO_WRITE_BURST(ADCR_LOCK);;
     adc_cmds[1] = ADC_LOCK_MAGIC;
-    gpio_put(PIN_ADC_SSn, 0);
+    assert_adc_cs(); check_adc_state();
     spi_write_blocking(SPI_ADC, adc_cmds, 2);
-    gpio_put(PIN_ADC_SSn, 1);
+    deassert_adc_cs();
     adc_regs[ADCR_LOCK].last_val = ADC_LOCK_MAGIC;
   }
   // fixup&cache the value
@@ -315,9 +368,9 @@ int do_adc_set_reg(int which, uint32_t value)
   if (adc_regs[which].size >= 2)
     *p++ = (value >> 8) & 0xFF;
   *p++ = value & 0xff;
-  gpio_put(PIN_ADC_SSn, 0);
+  assert_adc_cs(); check_adc_state();
   spi_write_read_blocking(SPI_ADC, adc_cmds, adc_data, 1+adc_regs[which].size);
-  gpio_put(PIN_ADC_SSn, 1);
+  deassert_adc_cs();
   // writes to CONFIG3/IRQ could potentially update the size of CRCCFG, as well
   // as the size of ADCDATA
   if ((which == ADCR_CONFIG3) || (which == ADCR_IRQ)) {
@@ -378,9 +431,9 @@ int do_adc_conv(uint8_t *dest)
 {
   // issue a conversion
   adc_cmds[0] = (adc_addr << 6) | ADC_DO_CONV_START;
-  gpio_put(PIN_ADC_SSn, 0);
+  assert_adc_cs(); check_adc_state();
   spi_write_blocking(SPI_ADC, adc_cmds, 1);
-  gpio_put(PIN_ADC_SSn, 1);
+  deassert_adc_cs();
   // fetch the responses
   adc_cmds[0] = (adc_addr << 6) | ADC_DO_READ(ADCR_ADCDATA);
   int n_chan = 1;
@@ -398,14 +451,14 @@ int do_adc_conv(uint8_t *dest)
         --next_scan_ch;
     // poll until the next result is available
     do {
-      gpio_put(PIN_ADC_SSn, 0);
+      assert_adc_cs(); check_adc_state();
       spi_write_read_blocking(SPI_ADC, adc_cmds, adc_data, 1);
-      gpio_put(PIN_ADC_SSn, 1);
+      deassert_adc_cs();
     } while (adc_data[0] & (1<<2));
     // actually fetch the data
-    gpio_put(PIN_ADC_SSn, 0);
+    assert_adc_cs(); check_adc_state();
     spi_write_read_blocking(SPI_ADC, adc_cmds, adc_data, 1+adc_regs[ADCR_ADCDATA].size);
-    gpio_put(PIN_ADC_SSn, 1);
+    deassert_adc_cs();
     // record the result
     int data;
     if (adc_regs[ADCR_ADCDATA].size == 1)

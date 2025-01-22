@@ -1,5 +1,41 @@
 #pragma once
 
+#if PICO_RP2350
+# define BOARD_NAME "pico2"
+# define CHIP_NAME "rp2350"
+# define RASPBERRY_BOARD_NAME "Raspberry_Pico2"
+# define WIZCHIP_BOARD_NAME "W5500-EVB-Pico2"
+# define SYSCLK_KHZ_DEFAULT 150000
+//# warning Pico2 (rp2350) build
+#elif PICO_RP2040
+# define BOARD_NAME "pico"
+# define CHIP_NAME "rp2040"
+# define RASPBERRY_BOARD_NAME "Raspberry_Pico"
+# define WIZCHIP_BOARD_NAME "W5500-EVB-Pico"
+# define SYSCLK_KHZ_DEFAULT 125000
+//# warning Pico (rp2040) build
+#else
+# define BOARD_NAME "jtag"
+# define CHIP_NAME "???"
+# define RASPBERRY_BOARD_NAME BOARD_NAME
+# define WIZCHIP_BOARD_NAME BOARD_NAME
+# define SYSCLK_KHZ_DEFAULT 0
+# error Unknown board - should be either PICO_RP2040 or PICO_RP2350 
+#endif
+
+// size of any incoming, or outgoing, buffer
+#if 1
+# define MTU_SIZE 1500
+// round up the buffer size to the next multiple of 64 bytes
+# define BUFFER_SIZE ((MTU_SIZE + 63) & ~63)
+#else
+# define BUFFER_SIZE 2048
+#endif
+
+// use optimal W5500 settings
+#define W5500_USE_BLOCK
+#define W5500_USE_BLOCK_DMA
+
 // equal1 jtag
 
 #define PIN_TMS    2 // GP2, header.4

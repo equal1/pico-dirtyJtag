@@ -47,6 +47,10 @@ int usb_init(uint64_t uid)
     return 0;
 }
 
+// this is to work around the fact that tinyUSB does not handle setup request automatically
+// Hence this boiler plate code
+bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request);
+
 //--------------------------------------------------------------------+
 // Device Descriptors
 //--------------------------------------------------------------------+

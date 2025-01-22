@@ -6,11 +6,18 @@
 
 extern int iox_spi_speed;
 
-// initialize A5 signals connected directly to the Pico
+// initialize A5 JTAG signals (connected directly to the Pico)
+int jtag_pins_init();
+// initialize A5 JTAG clock signal (connected directly to the Pico)
+int a5clk_pin_init();
+
+// initialize A5 signals connected directly to the Pico (other than JTAG)
 int a5_pico_pins_init();
 // initialize A5 signals connecred to the IO expander
 int a5_iox_pins_init();
 
+// actually initialize the IO expander
+void iox_init();
 // check if the IOX is present
 int iox_check();
 // print IOX state/config over debug link

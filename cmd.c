@@ -48,7 +48,6 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
   unsigned cmdpos = 0, resppos = 0;
   int pin, cfg; // pin config
   struct pindesc_s pindesc; // pin description
-  const char *djtag_whoami();
   extern struct djtag_clk_s djtag_clocks;
   int n, m;
   int do_iox_debug = 0;
@@ -70,8 +69,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
     case CMD_REBOOT:
       cmd_printf (" %c# @%u CMD_REBOOT\n", buf, cmdpos);
       puts ("Rebooting...");
-      sleep_ms(200);
-      watchdog_reboot(0, 0, 1); // standard boot in 1ms
+      watchdog_reboot(0, 0, 200); // standard boot in 0.2s
       while (1)
         asm volatile ("wfe");
       break;
@@ -115,11 +113,10 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
       break;
 
     case CMD_PINCFG_SET_ALL:
-      // we ignore direction and value
       cfg = cmdbuf[cmdpos+1];
       cmd_printf (" %c# @%u CMD_PINCFG_SET_ALL 0x%02X: %s\n", buf, cmdpos,
                   cfg, describe_pincfg(cfg, 0, 0));
-      pincfg_set_all(cfg);
+      pincfg_set_all(cfg); // we ignore direction and value (sets slew rate/hysteresis/pulls)
       break;
 
     case CMD_PINCFG_SET:

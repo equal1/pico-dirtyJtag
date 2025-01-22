@@ -8,6 +8,29 @@
 #include "config.h"
 #include "a5pins.h"
 
+int iox_spi_speed;
+void iox_init()
+{
+  // configure CS#
+  gpio_init(PIN_IOX_SSn);
+  gpio_put(PIN_IOX_SSn, 1); // initially de-selected
+  gpio_set_dir(PIN_IOX_SSn, GPIO_OUT);
+  bi_decl(bi_1pin_with_name(PIN_IOX_SSn, "IOX_SS#"));
+  // configure SPI itself - mode 0
+  spi_init(SPI_IOX, FREQ_IOX_KHZ * 1000);
+  spi_set_format (SPI_IOX, 8, 0, 0, 0);
+  // configure the SPI pins
+  gpio_set_function(PIN_IOX_SCK, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_IOX_MOSI, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_IOX_MISO, GPIO_FUNC_SPI);
+  bi_decl(bi_3pins_with_func(PIN_IOX_MISO, PIN_IOX_MOSI, PIN_IOX_SCK, GPIO_FUNC_SPI));
+  iox_spi_speed = spi_get_baudrate(SPI_IOX);
+  if (iox_check()) {
+    //printf ("IOX does NOT work at %u.%uMHz!\n", (iox_spi_speed+500)/1000000, ((iox_spi_speed+500)%1000000)/1000);
+    iox_spi_speed = 0;
+  }
+}
+
 static int32_t iox_readcmd_all(unsigned cmd) {
   if (iox_spi_speed < 1000)
     return -1;
@@ -157,6 +180,18 @@ int iox_check() {
   }
   iox_writecmd_all(IOX_REG_PIR, 0);
   return 0;
+}
+
+// initialize A5 JTAG signals (connected directly to the Pico)
+int jtag_pins_init() {
+  bi_decl(bi_4pins_with_names(PIN_TCK, "TCK", PIN_TDI, "TDI", PIN_TDO, "TDO", PIN_TMS, "TMS"));
+  bi_decl(bi_1pin_with_name(PIN_RST, "SRST#"));
+  return 0;
+}
+
+// initialize A5 JTAG clock signal (connected directly to the Pico)
+int a5clk_pin_init() {
+  bi_decl(bi_1pin_with_name(PIN_A5_CLK, "A5_CLK"));
 }
 
 // configure all A5 pins on the Pico itself

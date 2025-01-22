@@ -39,7 +39,7 @@ struct adcregs_s {
 };
 
 extern int adc_spi_speed;
-extern int adc_addr;
+extern short adc_addr;
 
 //-[ chip stuff ]-------------------------------------------------------------
 
