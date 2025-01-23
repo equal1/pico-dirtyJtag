@@ -88,19 +88,21 @@ typedef struct buffer_s
   volatile unsigned cmd_n, resp_n, resp_pos;
   uint8_t cmd[BUFFER_SIZE], resp[BUFFER_SIZE];
 } buffer_t;
-buffer_t usbbuf, ethbuf;
+buffer_t usbbuf, tcpbuf, udpbuf;
 
 // receive tasks, usb and ethernet
 // they return -1 on no data, bufidx on got data
 static void usb_rx_task();
-static void eth_rx_task();
+static void tcp_rx_task();
+static void udp_rx_task();
 // run the jtag task in a specific buffer
 static void run_jtag_task(buffer_t*);
 // check if any task completed
 static void check_jtag_tasks();
 // respond tasks, usb and ethernet
 static void usb_tx_task();
-static void eth_tx_task();
+static void tcp_tx_task();
+static void udp_tx_task();
 
 // core1 runs the jtag tasks
 static void core1_entry();
@@ -152,6 +154,9 @@ int main()
     // register the TCP debug service
     if (tcpsrv_init())
       notify_ip_config(-1,"failed to register the TCP debug service");
+    // register the UDP debug service
+    if (udpsrv_init())
+      notify_ip_config(-1,"failed to register the TCP debug service");
   }
 
   multicore_launch_core1(core1_entry);
@@ -159,28 +164,26 @@ int main()
     // see if we have anything incoming
     if (usbbuf.state < READY_TO_EXECUTE)
       usb_rx_task();
-    if (ethbuf.state < READY_TO_EXECUTE) {
-      // if an ADC op is running on core 1, wait for it to finish
-      while (adc_busy)
-        ;
-      eth_rx_task();
-    }
+    if (tcpbuf.state < READY_TO_EXECUTE)
+      tcp_rx_task();
+    if (udpbuf.state < READY_TO_EXECUTE)
+      udp_rx_task();
     // kick off received tasks
     if (usbbuf.state == READY_TO_EXECUTE) // usb_rx_task() might update this
       run_jtag_task(&usbbuf);
-    if (ethbuf.state == READY_TO_EXECUTE) // eth_rx_task() might update this
-      run_jtag_task(&ethbuf);
+    if (tcpbuf.state == READY_TO_EXECUTE) // tcp_rx_task() might update this
+      run_jtag_task(&tcpbuf);
+    if (udpbuf.state == READY_TO_EXECUTE) // udp_rx_task() might update this
+      run_jtag_task(&udpbuf);
     // advance either buffer's state if it advanced
     check_jtag_tasks();
     // send the response, if any 
     if (usbbuf.state > READY_TO_EXECUTE) // check_jtag_tasks() might update this
       usb_tx_task();
-    if (ethbuf.state > READY_TO_EXECUTE) { // check_jtag_tasks() might update this
-      // if an ADC op is running on core 1, wait for it to finish
-      while (adc_busy)
-        ;
-      eth_tx_task();
-    }
+    if (tcpbuf.state > READY_TO_EXECUTE) // check_jtag_tasks() might update this
+      tcp_tx_task();
+    if (udpbuf.state > READY_TO_EXECUTE) // check_jtag_tasks() might update this
+      udp_tx_task();
   }
 }
 
@@ -192,7 +195,7 @@ void core1_entry() {
   while (1) {
     buffer_t *crtbuf = (buffer_t*)multicore_fifo_pop_blocking();
     assert (crtbuf->state == EXECUTING);
-    crtbuf->resp_n = cmd_execute(&jtag, (crtbuf==&usbbuf)?'U':'E', crtbuf->cmd, crtbuf->cmd_n, crtbuf->resp);
+    crtbuf->resp_n = cmd_execute(&jtag, (crtbuf==&usbbuf)?'U':(crtbuf==&tcpbuf)?'T':'D', crtbuf->cmd, crtbuf->cmd_n, crtbuf->resp);
     multicore_fifo_push_blocking((uint32_t)crtbuf);
   }
 }
@@ -283,62 +286,123 @@ usb_send_more:
   }
 }
 
-// ETH receive task
-void eth_rx_task()
+// ETH TCP receive task
+void tcp_rx_task()
 {
   // do nothing unless the eth buffer is either UNUSED or RECEIVING
-  if ((ethbuf.state != UNUSED) && (ethbuf.state != RECEIVING))
+  if ((tcpbuf.state != UNUSED) && (tcpbuf.state != RECEIVING))
     return;
   // reset the cmd pointer, if we're just entering the RECEIVING state
-  if (ethbuf.state != RECEIVING) {
-    ethbuf.cmd_n = 0;
-    ethbuf.state = RECEIVING; // transitory!
+  if (tcpbuf.state != RECEIVING) {
+    tcpbuf.cmd_n = 0;
+    tcpbuf.state = RECEIVING; // transitory!
   }
   // run the Ethernet task
   eth_task();
   // grab data from Ethernet
-  int n = tcpsrv_fetch(ethbuf.cmd);
+  int n = tcpsrv_fetch(tcpbuf.cmd);
   if (n < 1)
     return;
   // set the read pointer
-  ethbuf.cmd_n = n;
-  dprintf (" E< %u\n", n); // <{received}
+  tcpbuf.cmd_n = n;
+  dprintf (" T< %u\n", n); // <{received}
   // we're done - ready to execute
-  ethbuf.state = READY_TO_EXECUTE;
+  tcpbuf.state = READY_TO_EXECUTE;
 # ifdef DEBUG
-  printf ("ethbuf ready to execute (cmd_sz=%u)\n", ethbuf.cmd_n);
+  printf ("ethbuf ready to execute (cmd_sz=%u)\n", tcpbuf.cmd_n);
 # endif
 }
 
-// ETH transmit task
-void eth_tx_task()
+// ETH TCP transmit task
+void tcp_tx_task()
 {
   // for ethernet, a zero-length response still needs to be sent, per protocol
   // (which is purely ping-pong)
   // do nothing unless the eth buffer is READY_TO_SEND or SENDING
-  if ((ethbuf.state != READY_TO_SEND) && (ethbuf.state != SENDING))
+  if ((tcpbuf.state != READY_TO_SEND) && (tcpbuf.state != SENDING))
     return;
   // reset the response pointer, if we're just entering the SENDING state
-  if (ethbuf.state != SENDING) {
-    ethbuf.resp_pos = 0;
-    ethbuf.state = SENDING; // transitory!
+  if (tcpbuf.state != SENDING) {
+    tcpbuf.resp_pos = 0;
+    tcpbuf.state = SENDING; // transitory!
   }
   // we can be in two states - either we need to send, or we need to wait
   // for Ethernet FSM to advance until the data is sent
-  if (! ethbuf.resp_pos) {
+  if (! tcpbuf.resp_pos) {
     // set the output data
-    dprintf (" E> %u\n", ethbuf.resp_n); // >{transmitted}
-    tcpsrv_submit(ethbuf.resp, ethbuf.resp_n);
+    dprintf (" T> %u\n", tcpbuf.resp_n); // >{transmitted}
+    tcpsrv_submit(tcpbuf.resp, tcpbuf.resp_n);
     // run the Ethernet task
     eth_task();
     // mark the output pointer
     // note that we *can* send a zero-byte reply, so storing resp_n won't do
-    ethbuf.resp_pos = ethbuf.resp_n | 1;
+    tcpbuf.resp_pos = tcpbuf.resp_n | 1;
   }
   else {
     eth_task();
     if (! is_tcpsrv_sending()) {
-      ethbuf.state = UNUSED;
+      tcpbuf.state = UNUSED;
+      return;
+    }
+  }
+}
+
+// ETH UDP receive task
+void udp_rx_task()
+{
+  // do nothing unless the eth buffer is either UNUSED or RECEIVING
+  if ((udpbuf.state != UNUSED) && (udpbuf.state != RECEIVING))
+    return;
+  // reset the cmd pointer, if we're just entering the RECEIVING state
+  if (udpbuf.state != RECEIVING) {
+    udpbuf.cmd_n = 0;
+    udpbuf.state = RECEIVING; // transitory!
+  }
+  // run the Ethernet task
+  eth_task();
+  // grab data from Ethernet
+  int n = udpsrv_fetch(udpbuf.cmd);
+  if (n < 1)
+    return;
+  // set the read pointer
+  udpbuf.cmd_n = n;
+  dprintf (" D< %u\n", n); // <{received}
+  // we're done - ready to execute
+  udpbuf.state = READY_TO_EXECUTE;
+# ifdef DEBUG
+  printf ("udpbuf ready to execute (cmd_sz=%u)\n", udpbuf.cmd_n);
+# endif
+}
+
+// ETH UDP transmit task
+void udp_tx_task()
+{
+  // for ethernet, a zero-length response still needs to be sent, per protocol
+  // (which is purely ping-pong)
+  // do nothing unless the eth buffer is READY_TO_SEND or SENDING
+  if ((udpbuf.state != READY_TO_SEND) && (udpbuf.state != SENDING))
+    return;
+  // reset the response pointer, if we're just entering the SENDING state
+  if (udpbuf.state != SENDING) {
+    udpbuf.resp_pos = 0;
+    udpbuf.state = SENDING; // transitory!
+  }
+  // we can be in two states - either we need to send, or we need to wait
+  // for Ethernet FSM to advance until the data is sent
+  if (! udpbuf.resp_pos) {
+    // set the output data
+    dprintf (" D> %u\n", udpbuf.resp_n); // >{transmitted}
+    udpsrv_submit(udpbuf.resp, udpbuf.resp_n);
+    // run the Ethernet task
+    eth_task();
+    // mark the output pointer
+    // note that we *can* send a zero-byte reply, so storing resp_n won't do
+    udpbuf.resp_pos = udpbuf.resp_n | 1;
+  }
+  else {
+    eth_task();
+    if (! is_udpsrv_sending()) {
+      udpbuf.state = UNUSED;
       return;
     }
   }
@@ -354,7 +418,7 @@ void run_jtag_task(buffer_t *buf)
   if (! multicore_fifo_wready())
     return;
   buf->state = EXECUTING;
-  dprintf ((buf == &usbbuf) ? " Ux\n" : " Ex\n");
+  dprintf ((buf == &usbbuf) ? " Ux\n" : (buf == &tcpbuf) ? " Tx\n" : " Dx\n");
 
   multicore_fifo_push_blocking((uint32_t)buf);
 }
@@ -365,7 +429,7 @@ void check_jtag_tasks()
   // do nothing unless the JTAG core finished a job
   while (multicore_fifo_rvalid()) {
     buffer_t *buf = (buffer_t*)multicore_fifo_pop_blocking();
-    dprintf (" %c=%u\n", (buf==&usbbuf)?'U':'E', buf->resp_n); // >{transmitted}
+    dprintf (" %c=%u\n", (buf==&usbbuf)?'U':(buf==&tcpbuf)?'T':'D', buf->resp_n); // >{transmitted}
     buf->resp_pos = 0;
     buf->state = EXECUTED; // == READY_TO_SEND
   }

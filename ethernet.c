@@ -899,6 +899,27 @@ void w5500_block_write(uint8_t *pBuf, uint16_t len)
 
 //============================================================================
 
+const char *ssstr(int s)
+{
+  static char sstxt[8];
+  switch (s) {
+  case SOCK_CLOSED: return "SOCK_CLOSED";
+  case SOCK_INIT: return "SOCK_INIT";
+  case SOCK_LISTEN: return "SOCK_LISTEN";
+  case SOCK_SYNSENT: return "SOCK_SYNSENT";
+  case SOCK_SYNRECV: return "SOCK_SYNRECV";
+  case SOCK_ESTABLISHED: return "SOCK_ESTABLISHED";
+  case SOCK_FIN_WAIT: return "SOCK_FIN_WAIT";
+  case SOCK_CLOSING: return "SOCK_CLOSING";
+  case SOCK_TIME_WAIT: return "SOCK_TIME_WAIT";
+  case SOCK_CLOSE_WAIT: return "SOCK_CLOSE_WAIT";
+  case SOCK_LAST_ACK: return "SOCK_LAST_ACK";
+  default: sprintf (sstxt,"0x%02X", s); return sstxt;
+  }
+}
+
+//============================================================================
+
 // W5500 IRQ logic - neither useful nor needed
 
 #if 0

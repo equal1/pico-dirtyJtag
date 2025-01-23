@@ -20,18 +20,18 @@
 #define dprintf(...) (void)(__VA_ARGS__)
 #endif
 
-static void tcpsrv_on_link_up(int);
-static void tcpsrv_on_link_down(int);
-static void tcpsrv_process(int, int);
+static void udpsrv_on_link_up(int);
+static void udpsrv_on_link_down(int);
+static void udpsrv_process(int, int);
 
-int tcpsrv_init()
+int udpsrv_init()
 {
-  int res = eth_register_service(SOCKET_TCPSRV,
-                                 tcpsrv_on_link_up, tcpsrv_on_link_down,
-                                 tcpsrv_process);
+  int res = eth_register_service(SOCKET_UDPSRV,
+                                 udpsrv_on_link_up, udpsrv_on_link_down,
+                                 udpsrv_process);
   if (res)
-    printf("tcpsrv: FAILED to register TCP server on port %u, socket #%u\n",
-           PORT_TCPSRV, SOCKET_TCPSRV);
+    printf("udpsrv: FAILED to register UDP server on port %u, socket #%u\n",
+           PORT_UDPSRV, SOCKET_UDPSRV);
   return res;
 }
 
@@ -53,91 +53,70 @@ static struct {
 } dbgsrv_out;
 
 enum {
-  TCPSRV_RECV_ETH = 0,
-  TCPSRV_WAIT_GETCMD,
-  TCPSRV_WAIT_RESPONSE,
-  TCPSRV_SEND_ETH
+  UDPSRV_RECV_ETH = 0,
+  UDPSRV_WAIT_GETCMD,
+  UDPSRV_WAIT_RESPONSE,
+  UDPSRV_SEND_ETH
 };
-static int tcpsrv_state;
+static int udpsrv_state;
 
-int client_connected = 0;
-static char client[] = "???.???.???.???:?????";
+static uint32_t last_client_ip = 0;
+static uint16_t last_client_port = 0;
 static int last_sstate;
 
-void tcpsrv_on_link_up(int sock)
+void udpsrv_on_link_up(int sock)
 {
   // reset the buffers
   dbgsrv_in.size = 0;
   dbgsrv_out.expected_size = 0;
   dbgsrv_out.actual_size = 0;
   // get the socket to the point where we can receive incoming connections
-  dprintf ("tcpsrv: enabling\n");
-  if (sock != socket(sock, Sn_MR_TCP, PORT_TCPSRV, 0x00)) {
-    puts("tcpsrv: cannot allocate socket!");
+  last_client_ip = 0; last_client_port = 0;
+  dprintf ("udpsrv: enabling\n");
+  if (sock != socket(sock, Sn_MR_UDP, PORT_UDPSRV, 0x00)) {
+    puts("udpsrv: cannot allocate socket!");
     return;
   }
   int sstate = getSn_SR(sock);
   last_sstate = sstate;
-  if (sstate != SOCK_INIT) {
-    printf("tcpsrv: socket state wrong after initialization (%s)!\n", ssstr(sstate));
+  if (sstate != SOCK_UDP) {
+    printf("udpsrv: socket state wrong after initialization: %s!\n", ssstr(sstate));
     return;
   }
-  if(listen(sock) != SOCK_OK) {
-    printf("tcpsrv: cannot listen on socket (%s)!\n", ssstr(sstate));
-    return;
-  }
-  client_connected = 0;
-  strcpy(client, "?.?.?.?:?");
-  printf("tcpsrv: listening on port %u, socket #%u\n", PORT_TCPSRV, sock);
-  tcpsrv_state = TCPSRV_RECV_ETH;
+  printf("udpsrv: listening on port %u, socket #%u\n", PORT_UDPSRV, sock);
+  udpsrv_state = UDPSRV_RECV_ETH;
 }
 
-void tcpsrv_on_link_down(int sock)
+void udpsrv_on_link_down(int sock)
 {
   // close the socket
   close(sock);
-  client_connected = 0;
   last_sstate = SOCK_CLOSED;
-  puts("tcpsrv: disabling");
+  puts("udpsrv: disabling");
 }
 
-void tcpsrv_process(int sock, int sstate)
+void udpsrv_process(int sock, int sstate)
 {
   // nothing to do if we're waiting for JTAG to pick up the commands, or to 
   // produce a response
-  if ((tcpsrv_state == TCPSRV_WAIT_GETCMD) ||
-      (tcpsrv_state == TCPSRV_WAIT_RESPONSE))
+  if ((udpsrv_state == UDPSRV_WAIT_GETCMD) ||
+      (udpsrv_state == UDPSRV_WAIT_RESPONSE))
     return;
 
   // if the socket was closed, or not established, there's also nothing to do
   if (sstate == SOCK_CLOSED) {
-    if (last_sstate != SOCK_CLOSED)
-      puts("tcpsrv: disconnected client");
-    tcpsrv_on_link_up(sock);
+    //if (last_sstate != SOCK_CLOSED)
+    //  puts("udpsrv: socket closed");
+    udpsrv_on_link_up(sock);
   }
   // if nothing connected, return
-  if (sstate != SOCK_ESTABLISHED) {
+  if (sstate != SOCK_UDP) {
     last_sstate = sstate;
     return;
   }
-  // if we just connected, see to what
-  if (last_sstate != SOCK_ESTABLISHED) {
-    if (getSn_IR(sock) & Sn_IR_CON) {
-      uint8_t cliip[4];
-      uint16_t cliport;
-      getSn_DIPR(sock, cliip);
-      cliport = getSn_DPORT(sock);
-      setSn_IR(sock, Sn_IR_CON);
-      sprintf(client, "%u.%u.%u.%u:%u",
-              cliip[0], cliip[1], cliip[2], cliip[3], cliport);
-      printf ("tcpsrv: accepted connection from %s\n", client);
-    }
-  }
-  last_sstate = sstate;
-
   // -------------------------------------------------------------------------
   // if we're in the send phase
-  if (tcpsrv_state == TCPSRV_SEND_ETH) {
+  if (udpsrv_state == UDPSRV_SEND_ETH) {
     // bail out if we don't have a response
     if (! dbgsrv_out.actual_size)
       return;
@@ -148,7 +127,7 @@ void tcpsrv_process(int sock, int sstate)
       expected &= ~0x80000000;
     if (!actual || !expected)
       return;
-    dprintf("tcpsrv: send response, expected=%u, actual=%u\n");
+    dprintf("udpsrv: send response, expected=%u, actual=%u\n");
     // if we have a maximum size specified, patch the out structure
     // - if we produced less data than the client would accept, limit the
     //   expectation
@@ -157,7 +136,7 @@ void tcpsrv_process(int sock, int sstate)
       if (actual < expected)
         expected = actual;
       else if (actual > expected) {
-        printf("tcpsrv: trimming response (have %u, requested <%u)\n",
+        printf("udpsrv: trimming response (have %u, requested <%u)\n",
                actual, expected);
         actual = expected;
       }
@@ -166,63 +145,66 @@ void tcpsrv_process(int sock, int sstate)
     }
     // check if the protocol is obeyed
     if (expected != actual) {
-      printf("tcpsrv: protocol error: "
-             "expected response: %ubytes, have: %ubytes; "
-             "disconnecting client...\n",
+      printf("udpsrv: protocol error: expected response: %ubytes, have: %ubytes!\n",
              expected, actual);
     close_and_exit:
       close(sock);
       return;
     }
     if (actual != dbgsrv_out.buf.response_size + 4) {
-      printf("tcpsrv: internal error: "
-             "response size set to: %ubytes, payload: %ubytes; "
-             "disconnecting client...\n",
+      printf("udpsrv: internal error: response size set to: %ubytes, payload: %ubytes!\n",
              actual, dbgsrv_out.buf.response_size);
       goto close_and_exit;
     }
     // send the reply and resume waiting for data
-    int transferred = send(sock, (uint8_t*)&dbgsrv_out.buf, actual);
+    int transferred = sendto(sock, (uint8_t*)&dbgsrv_out.buf, actual, (uint8_t*)&last_client_ip, last_client_port);
     if (transferred != actual) {
-      puts("tcpsrv: send error, disconnecting client...");
-      goto close_and_exit;
+      printf("udpsrv: send error (expected %d, actual %d).\n", actual, transferred);
+      //goto close_and_exit;
     }
-    dprintf("tcpsrv: sent packet, payload size=%u\n",
+    dprintf("udpsrv: sent packet, payload size=%u\n",
             dbgsrv_out.buf.response_size);
     // reset the send pointer
     dbgsrv_out.expected_size = 0;
-    tcpsrv_state = TCPSRV_RECV_ETH;
+    udpsrv_state = UDPSRV_RECV_ETH;
   }
 
   // -------------------------------------------------------------------------
   // if we're in the receive phase
-  if (tcpsrv_state == TCPSRV_RECV_ETH) {
+  if (udpsrv_state == UDPSRV_RECV_ETH) {
     // check if there's data to receive
     int expected = getSn_RX_RSR(sock);
     if (! expected)
       return;
     if (expected < 0) {
-      puts ("tcpsrv: read error, disconnecting client...");
+      puts ("udpsrv: read error...");
       goto close_and_exit;
     }
     if (expected > BUFFER_SIZE) {
-      printf ("tcpsrv: packet too large (size=%d, max=%u), ",
-              "disconnecting client...\n", expected, BUFFER_SIZE);
+      printf ("udpsrv: packet too large (size=%d, max=%u)...\n", expected, BUFFER_SIZE);
       goto close_and_exit;
     }
-    int actual = recv(sock, (uint8_t*)&dbgsrv_in.buf, expected);
+    uint8_t cliip[4]; uint16_t cliport;
+    int actual = recvfrom(sock, (uint8_t*)&dbgsrv_in.buf, expected, cliip, &cliport);
     if (actual < 0) {
-      puts ("tcpsrv: receive error, disconnecting client...");
+      puts ("udpsrv: receive error...");
       goto close_and_exit;
     }
-    if (expected != actual) {
-      printf ("tcpsrv: read error (expected=%d, got=%d), "
-              "disconnecting client...\n", expected, actual);
+    // there's fewer bytes than we expect - the RX_RSR tells us the entire package size, including
+    // the header
+    if (actual < expected - 8) {
+      printf ("udpsrv: recvfrom error (expected=%d, got=%d)...\n", expected-8, actual);
       goto close_and_exit;
+    }
+    // if it's a new client, say so
+    if ((last_client_ip != *(uint32_t*)cliip )||(last_client_port != cliport)) {
+      last_client_ip = *(uint32_t*)cliip; last_client_port = cliport;
+      printf("udpsrv: talking to %u.%u.%u.%u:%u\n",
+             cliip[0], cliip[1], cliip[2], cliip[3], cliport);
     }
     // good stuff; see what the client expects
     if (actual != (dbgsrv_in.buf.payload_size + 8)) {
-      printf ("tcpsrv: protocol error "
+      printf ("udpsrv: protocol error "
               "(payload: claimed %d, actual %d; expected %s%d), "
               "disconnecting client...\n",
               dbgsrv_in.buf.payload_size, dbgsrv_in.size - 8,
@@ -230,7 +212,7 @@ void tcpsrv_process(int sock, int sstate)
                dbgsrv_in.buf.response_size & ~0x80000000);
       goto close_and_exit;
     }
-    dprintf("tcpsrv: received packet, payload size=%u; "
+    dprintf("udpsrv: received packet, payload size=%u; "
             "expected response of size %s%u\n",
             dbgsrv_in.buf.payload_size,
             (dbgsrv_in.buf.response_size < 0)? "<" : "",
@@ -238,14 +220,14 @@ void tcpsrv_process(int sock, int sstate)
     // mark the buffer being ready to use
     dbgsrv_in.size = actual;
     dbgsrv_out.expected_size = dbgsrv_in.buf.response_size + 4;
-    tcpsrv_state = TCPSRV_WAIT_GETCMD;
+    udpsrv_state = UDPSRV_WAIT_GETCMD;
   }
 }
 
-int tcpsrv_fetch(char *dest)
+int udpsrv_fetch(char *dest)
 {
   // if the state isn't WAIT_GETCMD, we don't have data
-  if (tcpsrv_state != TCPSRV_WAIT_GETCMD)
+  if (udpsrv_state != UDPSRV_WAIT_GETCMD)
     return 0;
   int n = dbgsrv_in.size;
   if (n <= 4)
@@ -253,35 +235,35 @@ int tcpsrv_fetch(char *dest)
   n = dbgsrv_in.buf.payload_size;
   if (n > 0) {
     memcpy(dest, dbgsrv_in.buf.payload, n);
-    dprintf ("tcpsrv: issuing cmds, %u bytes\n", n);
+    dprintf ("udpsrv: issuing cmds, %u bytes\n", n);
   }
   // mark the buffer as available
   dbgsrv_in.size = 0;
-  tcpsrv_state = TCPSRV_WAIT_RESPONSE;
+  udpsrv_state = UDPSRV_WAIT_RESPONSE;
   return n;
 }
 
-int tcpsrv_submit(const char *src, unsigned n)
+int udpsrv_submit(const char *src, unsigned n)
 {
   // if the state isn't WAIT_RESPONSE, we can't accept the data
-  if (tcpsrv_state != TCPSRV_WAIT_RESPONSE) {
-    puts ("tcpsrv: internal error, submitted response before receiving commands!");
+  if (udpsrv_state != UDPSRV_WAIT_RESPONSE) {
+    puts ("udpsrv: internal error, submitted response before receiving commands!");
     return 0;
   }
   dbgsrv_out.actual_size = 4 + n;
   dbgsrv_out.buf.response_size = n;
   if (n > 0) {
     memcpy(dbgsrv_out.buf.payload, src, n);
-    dprintf ("jtag/tcp: queueing resp, %u bytes\n", n);
+    dprintf ("jtag/udp: queueing resp, %u bytes\n", n);
   }
-  tcpsrv_state = TCPSRV_SEND_ETH;
+  udpsrv_state = UDPSRV_SEND_ETH;
   return n;
 }
 
-int is_tcpsrv_receiving() {
-  return (tcpsrv_state == TCPSRV_RECV_ETH);
+int is_udpsrv_receiving() {
+  return (udpsrv_state == UDPSRV_RECV_ETH);
 }
 
-int is_tcpsrv_sending() {
-  return (tcpsrv_state == TCPSRV_SEND_ETH);
+int is_udpsrv_sending() {
+  return (udpsrv_state == UDPSRV_SEND_ETH);
 }

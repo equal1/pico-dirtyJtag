@@ -43,7 +43,7 @@
 //#define cmd_printf(...) printf(__VA_ARGS__)
 #define cmd_printf(...) (void)(__VA_ARGS__)
 
-unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
+unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
   unsigned cmdpos = 0, resppos = 0;
   int pin, cfg; // pin config
@@ -51,10 +51,13 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf,const uint8_t *cmdbuf, unsi
   extern struct djtag_clk_s djtag_clocks;
   int n, m;
   int do_iox_debug = 0;
+  //cmd_printf ("buf=%c(%p) sz=%u\n", buf, cmdbuf, cmdsz);
   while (cmdpos < cmdsz) {
     uint8_t cmd = cmdbuf[cmdpos];
-    if (cmd == CMD_STOP)
+    if (cmd == CMD_STOP) {
+      cmd_printf (" %c# @%u CMD_STOP\n", buf, cmdpos);
       break;
+    }
     switch (cmd) {
 
     case CMD_GOTOBOOTLOADER:

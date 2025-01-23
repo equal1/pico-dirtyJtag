@@ -4,15 +4,15 @@
 
 // socket allocation
 #define SOCKET_TCPSRV 0
-#define SOCKET_UPDSRV 1
+#define SOCKET_UDPSRV 1
 #define SOCKET_FWUPD 2
 #define SOCKET_DHCP 7
 
 // ports
 #define PORT_BASE 8901
 #define PORT_TCPSRV PORT_BASE
-#define PORT_UDPSRV (PORT_BASE+1)
-#define PORT_FWUPD  (PORT_BASE+2)
+#define PORT_UDPSRV PORT_BASE // same port as the TCP one, except this one is UDP
+#define PORT_FWUPD  (PORT_BASE+1) // firmware update port
 
 
 // declare the pins
@@ -42,12 +42,19 @@ int is_ethernet_connected();
 // are we having an error
 int eth_error();
 
-// initialize the TCP server
+// the TCP server service (e1mon)
 int tcpsrv_init();
 int tcpsrv_fetch(char*);
 int tcpsrv_submit(const char*, unsigned);
 int is_tcpsrv_receiving();
 int is_tcpsrv_sending();
+
+// the UDP server service (djcli)
+int udpsrv_init();
+int udpsrv_fetch(char*);
+int udpsrv_submit(const char*, unsigned);
+int is_udpsrv_receiving();
+int is_udpsrv_sending();
 
 // read string values
 enum {
@@ -63,6 +70,7 @@ enum {
   ETHSTR_DNS,
 };
 const char *ethstr(int);
+const char *ssstr(int); // explain socket states
 
 #ifdef W5500_USE_BLOCK
 #ifdef W5500_USE_BLOCK_DMA
