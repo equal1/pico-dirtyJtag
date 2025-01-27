@@ -36,21 +36,8 @@ int tcpsrv_init()
 }
 
 // data buffers
-static struct {
-  struct {
-    int32_t payload_size, response_size;
-    uint8_t payload[BUFFER_SIZE-2*sizeof(int32_t)];
-  } buf;
-  uint32_t size;
-} dbgsrv_in;
-
-static struct {
-  struct {
-    int32_t response_size;
-    uint8_t payload[BUFFER_SIZE-sizeof(int32_t)];
-  } buf;
-  int32_t expected_size, actual_size;
-} dbgsrv_out;
+static struct dbgsrv_buf_in_s dbgsrv_in;
+static struct dbgsrv_buf_out_s dbgsrv_out;
 
 enum {
   TCPSRV_RECV_ETH = 0,
@@ -71,7 +58,7 @@ void tcpsrv_on_link_up(int sock)
   dbgsrv_out.expected_size = 0;
   dbgsrv_out.actual_size = 0;
   // get the socket to the point where we can receive incoming connections
-  dprintf ("tcpsrv: enabling\n");
+  dprintf("tcpsrv: enabling\n");
   if (sock != socket(sock, Sn_MR_TCP, PORT_TCPSRV, 0x00)) {
     puts("tcpsrv: cannot allocate socket!");
     return;
@@ -82,7 +69,7 @@ void tcpsrv_on_link_up(int sock)
     printf("tcpsrv: socket state wrong after initialization (%s)!\n", ssstr(sstate));
     return;
   }
-  if(listen(sock) != SOCK_OK) {
+  if (listen(sock) != SOCK_OK) {
     printf("tcpsrv: cannot listen on socket (%s)!\n", ssstr(sstate));
     return;
   }
@@ -130,7 +117,7 @@ void tcpsrv_process(int sock, int sstate)
       setSn_IR(sock, Sn_IR_CON);
       sprintf(client, "%u.%u.%u.%u:%u",
               cliip[0], cliip[1], cliip[2], cliip[3], cliport);
-      printf ("tcpsrv: accepted connection from %s\n", client);
+      printf("tcpsrv: accepted connection from %s\n", client);
     }
   }
   last_sstate = sstate;
@@ -202,27 +189,27 @@ void tcpsrv_process(int sock, int sstate)
     if (! expected)
       return;
     if (expected < 0) {
-      puts ("tcpsrv: read error, disconnecting client...");
+      puts("tcpsrv: read error, disconnecting client...");
       goto close_and_exit;
     }
     if (expected > BUFFER_SIZE) {
-      printf ("tcpsrv: packet too large (size=%d, max=%u), ",
+      printf("tcpsrv: packet too large (size=%d, max=%u), ",
               "disconnecting client...\n", expected, BUFFER_SIZE);
       goto close_and_exit;
     }
     int actual = recv(sock, (uint8_t*)&dbgsrv_in.buf, expected);
     if (actual < 0) {
-      puts ("tcpsrv: receive error, disconnecting client...");
+      puts("tcpsrv: receive error, disconnecting client...");
       goto close_and_exit;
     }
     if (expected != actual) {
-      printf ("tcpsrv: read error (expected=%d, got=%d), "
+      printf("tcpsrv: read error (expected=%d, got=%d), "
               "disconnecting client...\n", expected, actual);
       goto close_and_exit;
     }
     // good stuff; see what the client expects
     if (actual != (dbgsrv_in.buf.payload_size + 8)) {
-      printf ("tcpsrv: protocol error "
+      printf("tcpsrv: protocol error "
               "(payload: claimed %d, actual %d; expected %s%d), "
               "disconnecting client...\n",
               dbgsrv_in.buf.payload_size, dbgsrv_in.size - 8,
@@ -253,7 +240,7 @@ int tcpsrv_fetch(char *dest)
   n = dbgsrv_in.buf.payload_size;
   if (n > 0) {
     memcpy(dest, dbgsrv_in.buf.payload, n);
-    dprintf ("tcpsrv: issuing cmds, %u bytes\n", n);
+    dprintf("tcpsrv: issuing cmds, %u bytes\n", n);
   }
   // mark the buffer as available
   dbgsrv_in.size = 0;
@@ -265,14 +252,14 @@ int tcpsrv_submit(const char *src, unsigned n)
 {
   // if the state isn't WAIT_RESPONSE, we can't accept the data
   if (tcpsrv_state != TCPSRV_WAIT_RESPONSE) {
-    puts ("tcpsrv: internal error, submitted response before receiving commands!");
+    puts("tcpsrv: internal error, submitted response before receiving commands!");
     return 0;
   }
   dbgsrv_out.actual_size = 4 + n;
   dbgsrv_out.buf.response_size = n;
   if (n > 0) {
     memcpy(dbgsrv_out.buf.payload, src, n);
-    dprintf ("jtag/tcp: queueing resp, %u bytes\n", n);
+    dprintf("jtag/tcp: queueing resp, %u bytes\n", n);
   }
   tcpsrv_state = TCPSRV_SEND_ETH;
   return n;

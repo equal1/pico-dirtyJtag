@@ -92,17 +92,17 @@ void notify_ip_config(int link, const char *srvip)
   } 
   if (p) {
     if (link < 0)
-      sprintf (p, "eth error: %s", srvip);
+      sprintf(p, "eth error: %s", srvip);
     else {
-      p += sprintf (p, "eth: link ");
+      p += sprintf(p, "eth: link ");
       if (! link)
-        sprintf (p, "down");
+        sprintf(p, "down");
       else {
-        p += sprintf (p, "up; ");
+        p += sprintf(p, "up; ");
         if (! srvip)
-          sprintf (p, "waiting for IP...");
+          sprintf(p, "waiting for IP...");
         else
-          sprintf (p, "address %s...", srvip);
+          sprintf(p, "address %s...", srvip);
       }
     }
     // avoid duplicate messages

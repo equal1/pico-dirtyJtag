@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include "config.h"
 
 // socket allocation
@@ -12,7 +13,8 @@
 #define PORT_BASE 8901
 #define PORT_TCPSRV PORT_BASE
 #define PORT_UDPSRV PORT_BASE // same port as the TCP one, except this one is UDP
-#define PORT_FWUPD  (PORT_BASE+1) // firmware update port
+#define PORT_FWUPD_TFTP  69           // firmware update port: tftp request port
+#define PORT_FWUPD_DATA (PORT_BASE+1) // firmware update port: tftp data port
 
 
 // declare the pins
@@ -56,6 +58,9 @@ int udpsrv_submit(const char*, unsigned);
 int is_udpsrv_receiving();
 int is_udpsrv_sending();
 
+// firmware updated service (tftp)
+int fwupd_init();
+
 // read string values
 enum {
   ETHSTR_ERROR = -1,
@@ -71,6 +76,22 @@ enum {
 };
 const char *ethstr(int);
 const char *ssstr(int); // explain socket states
+
+// the data buffer structures for Ethernet
+struct dbgsrv_buf_in_s {
+  struct {
+    int32_t payload_size, response_size;
+    uint8_t payload[BUFFER_SIZE-2*sizeof(int32_t)];
+  } buf; // transported data
+  uint32_t size; // state data
+};
+struct dbgsrv_buf_out_s {
+  struct {
+    int32_t response_size;
+    uint8_t payload[BUFFER_SIZE-sizeof(int32_t)];
+  } buf; // transported data
+  int32_t expected_size, actual_size; // state data
+};
 
 #ifdef W5500_USE_BLOCK
 #ifdef W5500_USE_BLOCK_DMA

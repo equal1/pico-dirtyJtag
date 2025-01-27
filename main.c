@@ -47,7 +47,7 @@ const char *djtag_whoami()
 
 static void fatal_error()
 {
-  printf ("Rebooting to bootloader...\n");
+  printf("Rebooting to bootloader...\n");
   // this is fatal - wait 100ms then reboot to bootloader
   sleep_ms(100);
   reset_usb_boot(0, 0);
@@ -145,7 +145,7 @@ int main()
   whoami_init();
 
   // printf the header
-  printf ("\n----\n%s----\n", whoami);
+  printf("\n----\n%s----\n", whoami);
   // print the initial TILESEL/CLKSRC
   iox_debug();
   if (board_has_ethernet()) {
@@ -228,14 +228,14 @@ void usb_rx_task()
     return;
   // update the read pointer
   usbbuf.cmd_n += n;
-  dprintf (" U< %u(%u)\n", n, usbbuf.cmd_n); // <{received}({total_received})
+  dprintf(" U< %u(%u)\n", n, usbbuf.cmd_n); // <{received}({total_received})
   // if we got a max-size packet, stay in receive mode - more will follow
   if (n == 64)
     return;
   // if we got a fractional packet, we're done - ready to execute
   usbbuf.state = READY_TO_EXECUTE;
 # ifdef DEBUG
-  printf ("usbbuf ready to execute (cmd_sz=%u)\n", usbbuf.cmd_n);
+  printf("usbbuf ready to execute (cmd_sz=%u)\n", usbbuf.cmd_n);
 # endif
 }
 
@@ -268,7 +268,7 @@ usb_send_more:
   if (n > avl)
     n = avl;
   // enqueue any data, if we could
-  dprintf (" U> %u(%u)\n", n, n0 - n); // >{transmitted}({left})
+  dprintf(" U> %u(%u)\n", n, n0 - n); // >{transmitted}({left})
   tud_vendor_write(usbbuf.resp + usbbuf.resp_pos, n);
   tud_vendor_flush();
   // run the TinyUSB device task
@@ -305,11 +305,11 @@ void tcp_rx_task()
     return;
   // set the read pointer
   tcpbuf.cmd_n = n;
-  dprintf (" T< %u\n", n); // <{received}
+  dprintf(" T< %u\n", n); // <{received}
   // we're done - ready to execute
   tcpbuf.state = READY_TO_EXECUTE;
 # ifdef DEBUG
-  printf ("ethbuf ready to execute (cmd_sz=%u)\n", tcpbuf.cmd_n);
+  printf("ethbuf ready to execute (cmd_sz=%u)\n", tcpbuf.cmd_n);
 # endif
 }
 
@@ -330,7 +330,7 @@ void tcp_tx_task()
   // for Ethernet FSM to advance until the data is sent
   if (! tcpbuf.resp_pos) {
     // set the output data
-    dprintf (" T> %u\n", tcpbuf.resp_n); // >{transmitted}
+    dprintf(" T> %u\n", tcpbuf.resp_n); // >{transmitted}
     tcpsrv_submit(tcpbuf.resp, tcpbuf.resp_n);
     // run the Ethernet task
     eth_task();
@@ -366,11 +366,11 @@ void udp_rx_task()
     return;
   // set the read pointer
   udpbuf.cmd_n = n;
-  dprintf (" D< %u\n", n); // <{received}
+  dprintf(" D< %u\n", n); // <{received}
   // we're done - ready to execute
   udpbuf.state = READY_TO_EXECUTE;
 # ifdef DEBUG
-  printf ("udpbuf ready to execute (cmd_sz=%u)\n", udpbuf.cmd_n);
+  printf("udpbuf ready to execute (cmd_sz=%u)\n", udpbuf.cmd_n);
 # endif
 }
 
@@ -391,7 +391,7 @@ void udp_tx_task()
   // for Ethernet FSM to advance until the data is sent
   if (! udpbuf.resp_pos) {
     // set the output data
-    dprintf (" D> %u\n", udpbuf.resp_n); // >{transmitted}
+    dprintf(" D> %u\n", udpbuf.resp_n); // >{transmitted}
     udpsrv_submit(udpbuf.resp, udpbuf.resp_n);
     // run the Ethernet task
     eth_task();
@@ -418,7 +418,7 @@ void run_jtag_task(buffer_t *buf)
   if (! multicore_fifo_wready())
     return;
   buf->state = EXECUTING;
-  dprintf ((buf == &usbbuf) ? " Ux\n" : (buf == &tcpbuf) ? " Tx\n" : " Dx\n");
+  dprintf((buf == &usbbuf) ? " Ux\n" : (buf == &tcpbuf) ? " Tx\n" : " Dx\n");
 
   multicore_fifo_push_blocking((uint32_t)buf);
 }
@@ -429,7 +429,7 @@ void check_jtag_tasks()
   // do nothing unless the JTAG core finished a job
   while (multicore_fifo_rvalid()) {
     buffer_t *buf = (buffer_t*)multicore_fifo_pop_blocking();
-    dprintf (" %c=%u\n", (buf==&usbbuf)?'U':(buf==&tcpbuf)?'T':'D', buf->resp_n); // >{transmitted}
+    dprintf(" %c=%u\n", (buf==&usbbuf)?'U':(buf==&tcpbuf)?'T':'D', buf->resp_n); // >{transmitted}
     buf->resp_pos = 0;
     buf->state = EXECUTED; // == READY_TO_SEND
   }

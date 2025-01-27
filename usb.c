@@ -152,7 +152,7 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
     chr_count = strlen(str);
     if ( chr_count > 31 ) chr_count = 31;
 
-    for(uint8_t i=0; i<chr_count; i++)
+    for (uint8_t i=0; i<chr_count; i++)
     {
       _desc_str[1+i] = str[i];
     }

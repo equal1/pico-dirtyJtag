@@ -70,7 +70,7 @@ static void _assert_adc_cs(const char *fn)
   (void)fn;
 # ifdef SPI_PARANOIA
   if (! adc_ss)
-    printf ("P: in %s(): ADC CS# already asserted!!!\n", fn);
+    printf("P: in %s(): ADC CS# already asserted!!!\n", fn);
 # endif
   gpio_put(PIN_ADC_SSn, 0);
 # ifdef SPI_PARANOIA
@@ -84,7 +84,7 @@ static void _deassert_adc_cs(const char *fn)
   (void)fn;
 # ifdef SPI_PARANOIA
   if (adc_ss)
-    printf ("P: in %s(): ADC CS# not yet asserted!!!\n", fn);
+    printf("P: in %s(): ADC CS# not yet asserted!!!\n", fn);
 # endif
   gpio_put(PIN_ADC_SSn, 1);
 # ifdef SPI_PARANOIA
@@ -131,7 +131,7 @@ void adc_init()
 
   // perform detection
   if (adc_probe() < 0) {
-    //printf ("ADC does NOT work at %u.%uMHz!\n", (adc_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000);
+    //printf("ADC does NOT work at %u.%uMHz!\n", (adc_spi_speed+500)/1000000, ((adc_spi_speed+500)%1000000)/1000);
     adc_spi_speed = 0;
     return;
   }
@@ -183,7 +183,7 @@ void adc_init()
   // sample the offset
   int offset = 0;
   do_adc_conv((uint8_t*)&offset, ADC_CHID_OFSFET);
-  printf ("ADC offset: (%u) %d\n", (unsigned)offset >> 28, (offset << 17) >> 17 );
+  printf("ADC offset: (%u) %d\n", (unsigned)offset >> 28, (offset << 17) >> 17 );
 # endif
 
   // we're done with the SPI for now
@@ -224,7 +224,7 @@ int adc_probe()
     spi_write_read_blocking(SPI_ADC, adc_cmds, adc_data, 1);
     deassert_adc_cs();
 #   ifdef DEBUG
-    printf ("ADC: addr %u: cmd=%02X resp=%02X exp_resp=%02X|mask=%02X\n", addr, 
+    printf("ADC: addr %u: cmd=%02X resp=%02X exp_resp=%02X|mask=%02X\n", addr, 
       adc_cmds[0], adc_data[0], expected_resp, cmp_mask);
 #   endif
     if ((adc_data[0] & cmp_mask) == expected_resp) {
@@ -280,7 +280,7 @@ int do_adc_get_regs(uint8_t *dest) {
     pdata += 2;
   }
 # ifdef DEBUG
-  printf ("ADC regs: >%02X <%02X: {%02X %02X %02X %02X, %02X %02X, %06X %06X %06X %06X (%06X %02X) %02X (%02X) %04X %08X}\n",
+  printf("ADC regs: >%02X <%02X: {%02X %02X %02X %02X, %02X %02X, %06X %06X %06X %06X (%06X %02X) %02X (%02X) %04X %08X}\n",
           adc_reg_vals.cmd, adc_reg_vals.cmd_resp, 
           adc_reg_vals.config[0], adc_reg_vals.config[1], adc_reg_vals.config[2], adc_reg_vals.config[3], 
           adc_reg_vals.irq, adc_reg_vals.mux, 
@@ -314,7 +314,7 @@ static inline void adc_scan_updated(unsigned value)
           first_scan_ch = i;
     }
   }
-  //printf ("adc scan %04x n_ch=%d first_ch=%d\n", value, n_scan_ch, first_scan_ch);
+  //printf("adc scan %04x n_ch=%d first_ch=%d\n", value, n_scan_ch, first_scan_ch);
 }
 
 static inline void adc_cfg3_irq_updated(unsigned cfg3, unsigned irq)

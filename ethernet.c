@@ -272,23 +272,23 @@ int eth_init(uint64_t board_id)
 
   // format the hostname for the DHCP client
   // (which appends the last 3 bytes from the pico ID)
-  sprintf (HOST_NAME, BOARD_NAME "-%010llX", board_id >> 24);
+  sprintf(HOST_NAME, BOARD_NAME "-%010llX", board_id >> 24);
 
   // grab the chip name
   ctlwizchip(CW_GET_ID, eth.txt.chip_name);
   // format the MAC address
-  sprintf (eth.txt.mac, "%02X:%02X:%02X:%02X:%02X:%02X",
+  sprintf(eth.txt.mac, "%02X:%02X:%02X:%02X:%02X:%02X",
             eth.net.mac[0], eth.net.mac[1], eth.net.mac[2],
             eth.net.mac[3], eth.net.mac[4], eth.net.mac[5]);
   // format the hostname
   sprintf(eth.txt.hostname, BOARD_NAME"-%016llX", board_id);
   // format the SPI frequency
   if (eth.spi_freq >= 1000000)
-    sprintf (eth.txt.spifreq, "%u.%03uMHz",
+    sprintf(eth.txt.spifreq, "%u.%03uMHz",
              (eth.spi_freq + 500) / 1000000, 
              ((eth.spi_freq + 500) % 1000000) / 1000);
   else
-    sprintf (eth.txt.spifreq, "%uKHz",
+    sprintf(eth.txt.spifreq, "%uKHz",
              (eth.spi_freq + 500) / 1000);
 
   eth.have_link = 0;
@@ -406,7 +406,7 @@ void eth_task()
         if (sstate == SOCK_LAST_ACK)  goto next_socket;
         // if the socket is in CLOSE_WAITING state, close it
         if (sstate == SOCK_CLOSE_WAIT) {
-          //printf ("eth: socket %u in CLOSE_WAIT - closing\n", socket);
+          //printf("eth: socket %u in CLOSE_WAIT - closing\n", socket);
           close(socket);
           goto next_socket;
         }
@@ -594,7 +594,7 @@ void on_dhcp_assign()
   // update the chip and the text things
   eth_config_update();
   // print what just happened
-  printf ("dhcp: got IP %s; gateway %s, subnet %s (network: %s); DNS server: %s\n",
+  printf("dhcp: got IP %s; gateway %s, subnet %s (network: %s); DNS server: %s\n",
           eth.txt.ip, eth.txt.gateway, eth.txt.subnet, eth.txt.network, eth.txt.dns);
   // switch state to GOT_IP
   eth.state = ETH_HAVE_IP;
@@ -607,7 +607,7 @@ void on_dhcp_assign()
 // DHCP address changed
 void on_dhcp_update(void)
 {
-  printf ("eth/dhcp: address changed; restarting network...\n");
+  printf("eth/dhcp: address changed; restarting network...\n");
   // stop any running services
   eth_stop_services();
   // do the same as if an IP address had just been assigned
@@ -619,7 +619,7 @@ void on_dhcp_update(void)
 // DHCP IP conflict
 void on_dhcp_conflict(void)
 {
-  printf ("eth/dhcp: IP conflict");
+  printf("eth/dhcp: IP conflict");
   eth_got_error("DHCP conflict");
 }
 
@@ -653,13 +653,13 @@ void eth_config_update()
     notify_ip_config(eth.have_link, 0);
   }
   else {
-    sprintf (eth.txt.ip, "%u.%u.%u.%u",
+    sprintf(eth.txt.ip, "%u.%u.%u.%u",
              eth.net.ip[0], eth.net.ip[1], eth.net.ip[2], eth.net.ip[3]);
-    sprintf (eth.txt.gateway, "%u.%u.%u.%u", 
+    sprintf(eth.txt.gateway, "%u.%u.%u.%u", 
              eth.net.gw[0], eth.net.gw[1], eth.net.gw[2], eth.net.gw[3]);
-    sprintf (eth.txt.subnet, "%u.%u.%u.%u",
+    sprintf(eth.txt.subnet, "%u.%u.%u.%u",
              eth.net.sn[0], eth.net.sn[1], eth.net.sn[2], eth.net.sn[3]);
-    sprintf (eth.txt.dns, "%u.%u.%u.%u",
+    sprintf(eth.txt.dns, "%u.%u.%u.%u",
              eth.net.dns[0], eth.net.dns[1], eth.net.dns[2], eth.net.dns[3]);
     // compute the eth.net address
     unsigned netaddr_bits;
@@ -673,7 +673,7 @@ void eth_config_update()
       subnet <<= 1;
     }
     network &= ~((1 << (32 - netaddr_bits)) - 1);
-    sprintf (eth.txt.network, "%u.%u.%u.%u/%u",
+    sprintf(eth.txt.network, "%u.%u.%u.%u/%u",
              (network >> 24) & 0xFF, (network >> 16)& 0xFF, 
              (network >>  8) & 0xFF, (network >>  0)& 0xFF,
              netaddr_bits);
@@ -710,7 +710,7 @@ int w5500_reset()
 
 int eth_set_spi_speed(unsigned speed) {
 # if 0
-  printf ("W5500: attempting SPI at %u.%03uMHz...\n", 
+  printf("W5500: attempting SPI at %u.%03uMHz...\n", 
           (eth_spi_speed+500)/1000000, ((eth_spi_speed+500)%1000000/1000) );
 # endif
   // re-configure the SPI speed
@@ -735,14 +735,14 @@ void _assert_eth_cs(const char *fn)
   (void)fn;
 # ifdef SPI_PARANOIA
   if (! eth_ss)
-    printf ("P: in %s(): ETH CS# already asserted!!!\n", fn);
+    printf("P: in %s(): ETH CS# already asserted!!!\n", fn);
   else {
     if (! eth_busy)
-      printf ("P: in %s(): ETH CS# asserting without eth_busy!!!\n", fn);
+      printf("P: in %s(): ETH CS# asserting without eth_busy!!!\n", fn);
     if (! adc_busy)
-      printf ("P: in %s(): ETH CS# asserting while adc_busy!!!\n", fn);
+      printf("P: in %s(): ETH CS# asserting while adc_busy!!!\n", fn);
     if (! adc_ss)
-      printf ("P: in %s(): asserting ETH CS# while the ADC CS# is asserted!!!\n", fn);
+      printf("P: in %s(): asserting ETH CS# while the ADC CS# is asserted!!!\n", fn);
   }
 # endif
   gpio_put(PIN_ETH_CSn, 0);
@@ -756,7 +756,7 @@ void _deassert_eth_cs(const char *fn)
   (void)fn;
 # ifdef SPI_PARANOIA
   if (eth_ss)
-    printf ("P: in %s(): ETH CS# not yet asserted!!!\n", fn);
+    printf("P: in %s(): ETH CS# not yet asserted!!!\n", fn);
 # endif
   gpio_put(PIN_ETH_CSn, 1);
 # ifdef SPI_PARANOIA
@@ -914,7 +914,7 @@ const char *ssstr(int s)
   case SOCK_TIME_WAIT: return "SOCK_TIME_WAIT";
   case SOCK_CLOSE_WAIT: return "SOCK_CLOSE_WAIT";
   case SOCK_LAST_ACK: return "SOCK_LAST_ACK";
-  default: sprintf (sstxt,"0x%02X", s); return sstxt;
+  default: sprintf(sstxt,"0x%02X", s); return sstxt;
   }
 }
 
@@ -958,7 +958,7 @@ void w5500_on_irq(uint gpio, uint32_t events)
   uint16_t cwirq;
   ctlwizchip(CW_GET_INTERRUPT, &cwirq);
 # if 0
-  printf ("w5500_irq: %c%c%c%c%c%c%c%c %c%c\n",
+  printf("w5500_irq: %c%c%c%c%c%c%c%c %c%c\n",
     (cwirq & IK_SOCK_7) ? '7' : '-',
     (cwirq & IK_SOCK_6) ? '6' : '-',
     (cwirq & IK_SOCK_5) ? '5' : '-',
@@ -987,7 +987,7 @@ void w5500_on_irq(uint gpio, uint32_t events)
         (socket_handlers[i])(i, irqs);
       else {
 #       if 0
-        printf ("S%c: %c%c%c%c\n", '0'+i, 
+        printf("S%c: %c%c%c%c\n", '0'+i, 
                 (irqs & SIK_CONNECTED) ? 'C': '-',
                 (irqs & SIK_DISCONNECTED) ? 'D': '-',
                 (irqs & SIK_RECEIVED) ? 'R': '-',

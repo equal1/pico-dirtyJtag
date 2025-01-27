@@ -36,21 +36,8 @@ int udpsrv_init()
 }
 
 // data buffers
-static struct {
-  struct {
-    int32_t payload_size, response_size;
-    uint8_t payload[BUFFER_SIZE-2*sizeof(int32_t)];
-  } buf;
-  uint32_t size;
-} dbgsrv_in;
-
-static struct {
-  struct {
-    int32_t response_size;
-    uint8_t payload[BUFFER_SIZE-sizeof(int32_t)];
-  } buf;
-  int32_t expected_size, actual_size;
-} dbgsrv_out;
+static struct dbgsrv_buf_in_s dbgsrv_in;
+static struct dbgsrv_buf_out_s dbgsrv_out;
 
 enum {
   UDPSRV_RECV_ETH = 0,
@@ -72,7 +59,7 @@ void udpsrv_on_link_up(int sock)
   dbgsrv_out.actual_size = 0;
   // get the socket to the point where we can receive incoming connections
   last_client_ip = 0; last_client_port = 0;
-  dprintf ("udpsrv: enabling\n");
+  dprintf("udpsrv: enabling\n");
   if (sock != socket(sock, Sn_MR_UDP, PORT_UDPSRV, 0x00)) {
     puts("udpsrv: cannot allocate socket!");
     return;
@@ -103,13 +90,13 @@ void udpsrv_process(int sock, int sstate)
       (udpsrv_state == UDPSRV_WAIT_RESPONSE))
     return;
 
-  // if the socket was closed, or not established, there's also nothing to do
+  // if the socket was closed, there's also nothing to do
   if (sstate == SOCK_CLOSED) {
     //if (last_sstate != SOCK_CLOSED)
     //  puts("udpsrv: socket closed");
     udpsrv_on_link_up(sock);
   }
-  // if nothing connected, return
+  // if nothing there's something strange with the port state, do nothing for now
   if (sstate != SOCK_UDP) {
     last_sstate = sstate;
     return;
@@ -177,25 +164,40 @@ void udpsrv_process(int sock, int sstate)
     if (! expected)
       return;
     if (expected < 0) {
-      puts ("udpsrv: read error...");
+      puts("udpsrv: read error...");
       goto close_and_exit;
     }
+    // packets received over UDP have an 8-byte header, apparently
+    // that's probably {
+    //   uint16_t src_port, dst_port, len, cksum; // udp_hdr @0, @2, @4, @6
+    // }
+    if (expected < 8) {
+      puts("udpsrv: UDP error...");
+      goto close_and_exit;
+    }
+    expected -= 8;
     if (expected > BUFFER_SIZE) {
-      printf ("udpsrv: packet too large (size=%d, max=%u)...\n", expected, BUFFER_SIZE);
+      printf("udpsrv: packet too large (size=%d, max=%u)...\n", expected, BUFFER_SIZE);
       goto close_and_exit;
     }
     uint8_t cliip[4]; uint16_t cliport;
     int actual = recvfrom(sock, (uint8_t*)&dbgsrv_in.buf, expected, cliip, &cliport);
     if (actual < 0) {
-      puts ("udpsrv: receive error...");
+      puts("udpsrv: receive error...");
       goto close_and_exit;
     }
-    // there's fewer bytes than we expect - the RX_RSR tells us the entire package size, including
-    // the header
-    if (actual < expected - 8) {
-      printf ("udpsrv: recvfrom error (expected=%d, got=%d)...\n", expected-8, actual);
+    if (actual < expected) {
+      printf("udpsrv: recvfrom error (expected=%d, got=%d)...\n", expected, actual);
       goto close_and_exit;
     }
+    // a valid packet is 8+ bytes (8-bytes would be a null packet)
+    if (actual < 8) {
+      printf("udpsrv: protocol error (pktsize=%d)...", actual);
+      goto close_and_exit;
+    }
+    // ignore null packets
+    if (actual == 8)
+      continue;
     // if it's a new client, say so
     if ((last_client_ip != *(uint32_t*)cliip )||(last_client_port != cliport)) {
       last_client_ip = *(uint32_t*)cliip; last_client_port = cliport;
@@ -204,7 +206,7 @@ void udpsrv_process(int sock, int sstate)
     }
     // good stuff; see what the client expects
     if (actual != (dbgsrv_in.buf.payload_size + 8)) {
-      printf ("udpsrv: protocol error "
+      printf("udpsrv: protocol error "
               "(payload: claimed %d, actual %d; expected %s%d), "
               "disconnecting client...\n",
               dbgsrv_in.buf.payload_size, dbgsrv_in.size - 8,
@@ -235,7 +237,7 @@ int udpsrv_fetch(char *dest)
   n = dbgsrv_in.buf.payload_size;
   if (n > 0) {
     memcpy(dest, dbgsrv_in.buf.payload, n);
-    dprintf ("udpsrv: issuing cmds, %u bytes\n", n);
+    dprintf("udpsrv: issuing cmds, %u bytes\n", n);
   }
   // mark the buffer as available
   dbgsrv_in.size = 0;
@@ -247,14 +249,14 @@ int udpsrv_submit(const char *src, unsigned n)
 {
   // if the state isn't WAIT_RESPONSE, we can't accept the data
   if (udpsrv_state != UDPSRV_WAIT_RESPONSE) {
-    puts ("udpsrv: internal error, submitted response before receiving commands!");
+    puts("udpsrv: internal error, submitted response before receiving commands!");
     return 0;
   }
   dbgsrv_out.actual_size = 4 + n;
   dbgsrv_out.buf.response_size = n;
   if (n > 0) {
     memcpy(dbgsrv_out.buf.payload, src, n);
-    dprintf ("jtag/udp: queueing resp, %u bytes\n", n);
+    dprintf("jtag/udp: queueing resp, %u bytes\n", n);
   }
   udpsrv_state = UDPSRV_SEND_ETH;
   return n;

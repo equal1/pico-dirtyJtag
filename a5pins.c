@@ -26,7 +26,7 @@ void iox_init()
   bi_decl(bi_3pins_with_func(PIN_IOX_MISO, PIN_IOX_MOSI, PIN_IOX_SCK, GPIO_FUNC_SPI));
   iox_spi_speed = spi_get_baudrate(SPI_IOX);
   if (iox_check()) {
-    //printf ("IOX does NOT work at %u.%uMHz!\n", (iox_spi_speed+500)/1000000, ((iox_spi_speed+500)%1000000)/1000);
+    //printf("IOX does NOT work at %u.%uMHz!\n", (iox_spi_speed+500)/1000000, ((iox_spi_speed+500)%1000000)/1000);
     iox_spi_speed = 0;
   }
 }
@@ -271,7 +271,7 @@ void iox_debug() {
     printf("floating");
   else
     printf("%u", (set & tilesel_mask) >> (PIN_A5_TILESEL0&0xF));
-  printf (" CLKSRC=");
+  printf(" CLKSRC=");
   if (cfg & (1<<(PIN_A5_CLKSRC&0x1f)))
     printf("floating\n");
   else
@@ -372,7 +372,7 @@ int pincfg_set_all(int cfg)
 int pincfg_set(int pin, int cfg, int on_iox)
 {
   // PICO pins
-  if(! on_iox) {
+  if (! on_iox) {
     // apply slew rate
     gpio_set_slew_rate(pin, (cfg & PINCFG_SLEW_RATE_MASK) >> PINCFG_SLEW_RATE_POS);
     // apply drive strength
@@ -402,7 +402,7 @@ int pincfg_get(int pin, int on_iox)
 {
   int result = 0x8000;
   // PICO pins
-  if(! on_iox) {
+  if (! on_iox) {
     // get slew rate
     result |= gpio_get_slew_rate(pin) ? PINCFG_SLEW_RATE_FAST : PINCFG_SLEW_RATE_SLOW;
     // get drive strength
