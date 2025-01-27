@@ -48,16 +48,18 @@ struct eth_state_s {
   // network configuration
   wiz_NetInfo net;
   struct {
-    char chip_name[8];
-    char spifreq[12]; // ?.???MHz, ???KHz
-    char hostname[28];
-    char mac[20];
-    char ip[16];
+    char chip_name[8]; //  (6) "W????"
+    char spifreq[12];  //  (9) "?.???MHz" / "???KHz"
+    char hostname[24]; // (23) "pico?-????????????????"
+    char mac[20];      // (18) "??:??:??:??:??:??"
+    char ip[16];       // (16) "???.???.???.???"
     char gateway[16];
     char subnet[16];
     char dns[16];
-    char network[20];
+    char network[20];  // (20) "???.???.???.???/???"
     char error[20];
+    // up to 1 tcp client at any time
+    char tcpcli[24];   // (22) "???.???.???.???:?????"
   } txt;
   // sockets
   uint16_t used_socket_map;
@@ -65,6 +67,8 @@ struct eth_state_s {
   struct {
     link_callback_t on_link_up, on_link_down;
     socket_callback_t process;
+    // service-specific structure
+    struct dbgsvc_s *svc;
   } socket_callback[8];
 };
 
@@ -75,12 +79,13 @@ static struct eth_state_s eth = {
     .spifreq = "?.???MHz",
     .hostname = "???",
     .mac = "??:??:??:??:??:??",
-    .ip = "?.?.?.?",
-    .gateway = "?.?.?.?",
-    .subnet = "?.?.?.?",
-    .dns = "?.?.?.?",
-    .network = "?.?.?.?/?",
-    .error = "none"
+    .ip = "\0",
+    .gateway = "\0",
+    .subnet = "\0",
+    .dns = "\0",
+    .network = "\0",
+    .error = "\0",
+    .tcpcli = "\0"
   }
 };
 
@@ -124,6 +129,8 @@ void w5500_block_write(uint8_t *pBuf, uint16_t len);
 void w5500_dma_init();
 #endif
 #endif
+
+static void set_eth_client(const uint8_t *ip, uint16_t port);
 
 //----------------------------------------------------------------------------
 
@@ -264,7 +271,7 @@ int eth_init(uint64_t board_id)
   eth_spi_speed = eth.spi_freq; // replicate here - used by claim_spi_for_eth()
   if (! eth.spi_freq) {
     // register the error
-    notify_ip_config(-1, "W5500 not found");
+    notify_ip_config(-1, "W5500 not found", 0);
     eth.state = ETH_NOT_PRESENT;
     return 0;
   }
@@ -296,7 +303,7 @@ int eth_init(uint64_t board_id)
   // check if the link is actually off
   ctlwizchip(CW_GET_PHYLINK, &eth.have_link);
   // if we just saw the link go up, say so
-  notify_ip_config(eth.have_link, 0);
+  notify_ip_config(eth.have_link, 0, 0);
 
   return 0;
 }
@@ -317,19 +324,55 @@ int is_ethernet_connected()
   return eth.state == ETH_HAVE_IP;
 }
 
+int have_tcp_client_connected()
+{
+  return eth.txt.tcpcli[0];
+}
+
+void set_eth_client(const uint8_t *ip, uint16_t port)
+{
+  // clear client if !IP || !port
+  if ((! ip) || (! port) || (! *(uint32_t*)ip)) {
+    eth.txt.tcpcli[0] = 0;
+    notify_ip_config(eth.have_link, eth.txt.ip, 0);
+  }
+  else {
+    sprintf(eth.txt.tcpcli, "%u.%u.%u.%u:%u",
+            ip[0], ip[1], ip[2], ip[3], port);
+    notify_ip_config(eth.have_link, eth.txt.ip, eth.txt.tcpcli);
+  }
+}
+
 const char *ethstr(int s)
 {
-  if (s == ETHSTR_CHIP) return eth.txt.chip_name;
-  if (s == ETHSTR_SPIFREQ) return eth.txt.spifreq;
-  if (s == ETHSTR_MAC) return eth.txt.mac;
-  if (s == ETHSTR_HOSTNAME) return eth.txt.hostname;
-  if (s == ETHSTR_IP) return eth.txt.ip;
-  if (s == ETHSTR_NETWORK) return eth.txt.network;
-  if (s == ETHSTR_GATEWAY) return eth.txt.gateway;
-  if (s == ETHSTR_SUBNET) return eth.txt.subnet;
-  if (s == ETHSTR_DNS) return eth.txt.dns;
-  if (s == ETHSTR_ERROR) return eth.txt.error;
-  return "?";
+  const char *str;
+  switch (s) {
+  case ETHSTR_CHIP:
+    str = eth.txt.chip_name; break;
+  case ETHSTR_SPIFREQ:
+    str = eth.txt.spifreq; break;
+  case ETHSTR_MAC:
+    str = eth.txt.mac; break;
+  case ETHSTR_HOSTNAME:
+    str = eth.txt.hostname; break;
+  case ETHSTR_IP:
+    str = eth.txt.ip; break;
+  case ETHSTR_NETWORK:
+    str = eth.txt.network; break;
+  case ETHSTR_GATEWAY:
+    str = eth.txt.gateway; break;
+  case ETHSTR_SUBNET:
+    str = eth.txt.subnet; break;
+  case ETHSTR_DNS:
+    str = eth.txt.dns; break;
+  case ETHSTR_TCPCLI:
+    str = eth.txt.tcpcli; break;
+  case ETHSTR_ERROR:
+    str = eth.txt.error; break;
+  default:
+    str = 0;
+  }
+  return str[0] ? str : 0;
 }
 
 //============================================================================
@@ -345,7 +388,7 @@ void eth_task()
   ctlwizchip(CW_GET_PHYLINK, &eth.have_link);
   // if we just saw the link go up, say so
   if (had_no_link && eth.have_link)
-    notify_ip_config(1, 0);
+    notify_ip_config(1, 0, 0);
 
   // if there's no link
   if (! eth.have_link) {
@@ -412,7 +455,7 @@ void eth_task()
         }
         // call the service process() callback
         if (eth.socket_callback[socket].process)
-          eth.socket_callback[socket].process(socket, sstate);
+          eth.socket_callback[socket].process(socket, sstate, eth.socket_callback[socket].svc);
       }
     next_socket:
       ++socket;
@@ -498,7 +541,7 @@ static void eth_got_error(const char *msg)
 ///============================================================================
 
 // register a service on a socket
-int eth_register_service(int socket,
+int eth_register_service(int socket, struct dbgsvc_s *svc,
                          link_callback_t on_link_up, 
                          link_callback_t on_link_down,
                          socket_callback_t process)
@@ -510,12 +553,16 @@ int eth_register_service(int socket,
   eth.socket_callback[socket].on_link_up   = on_link_up;
   eth.socket_callback[socket].on_link_down = on_link_down;
   eth.socket_callback[socket].process      = process;
+  eth.socket_callback[socket].svc          = svc;
   eth.used_socket_map |= 1 << socket;
+  // patch in the tcp_set_cli pointer in the service structure
+  // (the target is static in this file)
+  svc->tcp_set_cli = set_eth_client;
   // if the state of ethernet is up, with IP, start the service
   // (if not, the init fn will be called once the link is up and
   //  the IP, assigned)
   if ((eth.state == ETH_HAVE_IP) && on_link_up) {
-    eth.socket_callback[socket].on_link_up(socket);
+    eth.socket_callback[socket].on_link_up(socket, eth.socket_callback[socket].svc);
     eth.running_socket_map |= 1 << socket;
   }
   // return success
@@ -531,7 +578,7 @@ void eth_stop_services()
   unsigned socket = 0;
   while (todo) {
     if ((todo & 1) && eth.socket_callback[socket].on_link_down) {
-      eth.socket_callback[socket].on_link_down(socket);
+      eth.socket_callback[socket].on_link_down(socket, eth.socket_callback[socket].svc);
       eth.running_socket_map &= ~(1 << socket);
     }
     ++socket;
@@ -548,7 +595,7 @@ void eth_start_services()
   unsigned socket = 0;
   while (todo) {
     if ((todo & 1) && eth.socket_callback[socket].on_link_up) {
-      eth.socket_callback[socket].on_link_up(socket);
+      eth.socket_callback[socket].on_link_up(socket, eth.socket_callback[socket].svc);
       eth.running_socket_map |= 1 << socket;
     }
     ++socket;
@@ -594,8 +641,14 @@ void on_dhcp_assign()
   // update the chip and the text things
   eth_config_update();
   // print what just happened
+# if 0
   printf("dhcp: got IP %s; gateway %s, subnet %s (network: %s); DNS server: %s\n",
           eth.txt.ip, eth.txt.gateway, eth.txt.subnet, eth.txt.network, eth.txt.dns);
+# else
+  // don't print both the newtork and the gateway
+  printf("dhcp: got IP %s; gateway %s, network: %s, DNS server: %s\n",
+          eth.txt.ip, eth.txt.gateway, eth.txt.network, eth.txt.dns);
+# endif
   // switch state to GOT_IP
   eth.state = ETH_HAVE_IP;
   // start any registered services
@@ -650,7 +703,7 @@ void eth_config_update()
     strcpy (eth.txt.subnet, "?.?.?.?");
     strcpy (eth.txt.dns, "?.?.?.?");
     strcpy (eth.txt.network, "?.?.?.?/?");
-    notify_ip_config(eth.have_link, 0);
+    notify_ip_config(eth.have_link, 0, 0);
   }
   else {
     sprintf(eth.txt.ip, "%u.%u.%u.%u",
@@ -677,7 +730,7 @@ void eth_config_update()
              (network >> 24) & 0xFF, (network >> 16)& 0xFF, 
              (network >>  8) & 0xFF, (network >>  0)& 0xFF,
              netaddr_bits);
-    notify_ip_config(eth.have_link, eth.txt.ip);
+    notify_ip_config(eth.have_link, eth.txt.ip, 0);
   }
 }
 

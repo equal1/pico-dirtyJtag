@@ -39,8 +39,7 @@ add_executable(dirtyJtag
 		utils.c
 		usb.c
 		ethernet.c
-		eth_tcpsrv.c
-		eth_udpsrv.c
+		eth_dbgsrv.c
 )
 target_include_directories(dirtyJtag PUBLIC 
 		${CMAKE_CURRENT_SOURCE_DIR}

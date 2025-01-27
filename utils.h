@@ -55,4 +55,4 @@ extern char *ipconfig_ptr;
 
 // if link==-1, srvip is the error message
 // if link==0|1, srvip is the IP address, or NULL if in the DHCP phase
-void notify_ip_config(int link, const char *srvip);
+void notify_ip_config(int link, const char *srvip, const char *cliip);

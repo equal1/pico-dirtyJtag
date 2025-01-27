@@ -78,7 +78,7 @@ retry:
 
 char *ipconfig_ptr;
 
-void notify_ip_config(int link, const char *srvip)
+void notify_ip_config(int link, const char *srvip, const char *cliip)
 {
   char *p = ipconfig_ptr;
   static int last_link = -1;
@@ -101,11 +101,17 @@ void notify_ip_config(int link, const char *srvip)
         p += sprintf(p, "up; ");
         if (! srvip)
           sprintf(p, "waiting for IP...");
-        else
-          sprintf(p, "address %s...", srvip);
+        else {
+          p += sprintf(p, "address %s; ", srvip);
+          if (! cliip)
+            sprintf (p, "waiting for client...");
+          else
+            sprintf (p, "connected to tcp://%s.", cliip);
+        }
       }
     }
-    // avoid duplicate messages
+    // avoid duplicate messages; also, don't actually print when only cliip changes
+    // (the tcp service will print instead)
     if (reprint || (link != last_link) || (srvip != last_srvip))
       puts(ipconfig_ptr);
   }

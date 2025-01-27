@@ -150,13 +150,13 @@ int main()
   iox_debug();
   if (board_has_ethernet()) {
     // magic call that re-prints the last state (and updates whoami)
-    notify_ip_config(-1,(const char*)-1);
+    notify_ip_config(-1,(const char*)-1, 0);
     // register the TCP debug service
     if (tcpsrv_init())
-      notify_ip_config(-1,"failed to register the TCP debug service");
+      notify_ip_config(-1,"failed to register the TCP debug service", 0);
     // register the UDP debug service
     if (udpsrv_init())
-      notify_ip_config(-1,"failed to register the TCP debug service");
+      notify_ip_config(-1,"failed to register the TCP debug service", 0);
   }
 
   multicore_launch_core1(core1_entry);
