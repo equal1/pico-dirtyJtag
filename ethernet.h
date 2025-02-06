@@ -10,13 +10,9 @@
 #define SOCKET_DHCP 7
 
 // ports
-#define PORT_BASE 8901
-#define PORT_DBGSRV PORT_BASE // use the same port number on both tcp and udp (they're different)
-//#define PORT_TCPSRV PORT_DBGSRV
-//#define PORT_UDPSRV PORT_DBGSRV
-#define PORT_TFTP  69           //  firmware update port: tftp request port
-#define PORT_FWUPD (PORT_BASE+1) // firmware update port: tftp data port
-
+#define PORT_JTAG 8901
+#define PORT_DBGSRV PORT_JTAG // use the same port number on both tcp and udp (they're different)
+#define PORT_TFTP  69    // firmware update port: using tftp
 
 // declare the pins
 void eth_pins_init();
@@ -132,3 +128,41 @@ struct dbgsvc_s {
 # else
 # define W5500_MODE "simple SPI accesses"
 #endif
+
+//=============================================================================
+//=[ TFTP protocol packets ]===================================================
+//=============================================================================
+
+#define TFTP_RRQ   1
+#define TFTP_WRQ   2
+#define TFTP_DATA  3
+#define TFTP_ACK   4 // acknowledged, minus options
+#define TFTP_ERROR 5
+#define TFTP_OACK  6 // option acknowledge
+
+#define TFTP_ERR_GENERIC  0 // not specified (see error message)
+#define TFTP_ERR_NOFILE   1 // file not found
+#define TFTP_ERR_ACCESS   2 // access violation
+#define TFTP_ERR_DISKFULL 3 // disk full / allocation exceeded
+#define TFTP_ERR_PROTOCOL 4 // illegal TFTP operation
+#define TFTP_ERR_BADID    5 // unknown tranfer ID
+#define TFTP_ERR_EXISTS   6 // file already exists
+#define TFTP_ERR_NOUSER   7 // no such user
+#define TFTP_ERR_BADOPT   8 // bad option
+
+
+// RRQ/WRQ structure:
+//   <opcode:int16> <filename:asciiz> <mode:asciiz> [{<optname:asciiz> <optval:asciiz>}...]
+//     case insensitive:
+//     mode := { "netascii", "octet", "mail" }
+//     optname := { "blksize", "timeout", "tsize" }
+// DATA structure:
+//   [opcode:int16] [block#:int16] [data]
+// ACK structure:
+//   [opcode:int16] [block#:int16]
+// ERROR structure:
+//   [opcode:int16] [errcode:int16] [msg:asciiz]
+
+// blksize: default 512
+// timeout: default ???
+// tsize: (transfer size: opt)

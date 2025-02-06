@@ -40,6 +40,7 @@ add_executable(dirtyJtag
 		usb.c
 		ethernet.c
 		eth_dbgsrv.c
+		eth_fwupd.c
 )
 target_include_directories(dirtyJtag PUBLIC 
 		${CMAKE_CURRENT_SOURCE_DIR}
@@ -68,6 +69,8 @@ target_link_libraries(dirtyJtag PRIVATE
 	hardware_pio
 	hardware_dma
 	hardware_spi
+	hardware_flash
+	hardware_xip_cache
 	pico_unique_id
 	tinyusb_device
 	tinyusb_board

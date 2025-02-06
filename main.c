@@ -157,6 +157,9 @@ int main()
     // register the UDP debug service
     if (udpsrv_init())
       notify_ip_config(-1,"failed to register the TCP debug service", 0);
+    // register the firmware update (tftp) service
+    if (fwupd_init())
+      notify_ip_config(-1,"failed to register the firmware update service", 0);
   }
 
   multicore_launch_core1(core1_entry);
@@ -191,6 +194,7 @@ int main()
 // - receive ID of buffer to execute 
 // - execute and update buffer
 // - send ID of buffer that executed
+
 void core1_entry() {
   while (1) {
     buffer_t *crtbuf = (buffer_t*)multicore_fifo_pop_blocking();
@@ -476,7 +480,7 @@ void whoami_init()
     p += sprintf(p, "ADC: " ADC_NAME ", spi%c@%u.%03uMHz, SS#@GP%u; device address %c\n",
                  (SPI_ADC == spi0)?'0':'1', f / 1000, f % 1000, PIN_ADC_SSn,
                  '0'+adc_addr);
-  // print the Ethernet  config
+  // print the Ethernet config
   if (board_has_ethernet ()) {
     p += sprintf(p, "Ethernet: %s, spi%c@%s, SS#@GP%u; MAC address %s, hostname %s\n",
                  ethstr(ETHSTR_CHIP), (SPI_ETH == spi0)?'0':'1', ethstr(ETHSTR_SPIFREQ), PIN_ETH_CSn,

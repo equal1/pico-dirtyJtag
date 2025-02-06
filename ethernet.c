@@ -199,7 +199,7 @@ int eth_init(uint64_t board_id)
   // don't reinit if chip isn't present
   if (eth.state >= ETH_NO_LINK )
     return 0;
-
+  
   // derive a MAC address from the unique board ID
   uint64_t macaddr = (board_id & 0xf0ffffffffff) | 0x020000000000;
   eth.net.mac[0] = (uint8_t)((macaddr >> 40) & 0xFF);
@@ -511,8 +511,9 @@ void eth_got_link()
 {
   // start the DHCP client (including its timer)
   if (! eth.dhcp_running) {
-    eth.dhcp_running = 1;
+    w5500_update(); // seems required, to set the SHAR as it was?
     DHCP_init(SOCKET_DHCP, dhcp_buf);
+    eth.dhcp_running = 1;
   }
   if (! eth.dhcp_timer_running) {
     eth.dhcp_timer_running = 1;
@@ -697,7 +698,7 @@ void eth_config_update()
   w5500_update();
 
   // format the DHCP settings as text
-  if (! *(uint32_t*)&eth.net.ip[0]) {
+  if (! *(uint32_t*)eth.net.ip) {
     strcpy (eth.txt.ip, "?.?.?.?");
     strcpy (eth.txt.gateway, "?.?.?.?");
     strcpy (eth.txt.subnet, "?.?.?.?");

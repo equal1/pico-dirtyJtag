@@ -61,7 +61,7 @@ int udpsrv_init()
 
 void dbgsrv_on_link_up(int sock, struct dbgsvc_s *svc)
 {
-  dprintf("dbgsrv_on_link_up(%u,%s@%p) %\n", sock, (svc==&tcp)?"tcp":(svc==&udp)?"udp":"???", svc);
+  dprintf("dbgsrv_on_link_up(%u,%s@%p)\n", sock, (svc==&tcp)?"tcp":(svc==&udp)?"udp":"???", svc);
   // reset the state
   svc->in.size = 0;
   svc->out.expected_size = 0;
@@ -104,7 +104,7 @@ void dbgsrv_on_link_up(int sock, struct dbgsvc_s *svc)
 
 void dbgsrv_on_link_down(int sock, struct dbgsvc_s *svc)
 {
-  dprintf("dbgsrv_on_link_down(%u,%s@%p) %\n", sock, (svc==&tcp)?"tcp":(svc==&udp)?"udp":"???", svc);
+  dprintf("dbgsrv_on_link_down(%u,%s@%p)\n", sock, (svc==&tcp)?"tcp":(svc==&udp)?"udp":"???", svc);
   // set the state to "no link"; the rest of the state will get
   // reset when the link goes up
   svc->state = SVC_NO_LINK;
@@ -282,7 +282,7 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
       printf("%s: protocol error "
               "(payload: claimed %d, actual %d; expected %s%d)%s...\n",
               svc->svcname,
-              svc->in.buf.payload_size, svc->in.size - 8,
+              svc->in.buf.payload_size, actual - 8,
               (svc->in.buf.response_size < 0)? "<=" : "",
                svc->in.buf.response_size & ~0x80000000,
               svc->is_tcp ? "; disconnecting client" : "");
