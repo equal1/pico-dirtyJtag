@@ -53,10 +53,10 @@ static inline void jtag_set_rst(const pio_jtag_inst_t *jtag, bool value)
 //  gpio_set_dir(jtag->pin_rst, !value);
   gpio_put(jtag->pin_rst, value);
 }
-static inline void jtag_set_trst(const pio_jtag_inst_t *jtag, bool value)
-{
-  // no TRST on E1 board
-}
+//static inline void jtag_set_trst(const pio_jtag_inst_t *jtag, bool value)
+//{
+//  // no TRST on E1 board
+//}
 
 // The following APIs assume that they are called in the following order:
 // jtag_set_XXX where XXX is any pin. if XXX is clk it needs to be false

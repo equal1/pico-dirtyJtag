@@ -12,6 +12,7 @@ static int tx_dma_chan = -1;
 static int rx_dma_chan;
 static dma_channel_config tx_c;
 static dma_channel_config rx_c;
+static bool last_tdo = false;
 
 void jtag_dma_init()
 {
@@ -79,6 +80,7 @@ void __time_critical_func(pio_jtag_write_blocking)
       }
     }
   }
+  last_tdo = !!(x & 1);
 }
 
 void __time_critical_func(pio_jtag_write_read_blocking)
@@ -116,6 +118,7 @@ void __time_critical_func(pio_jtag_write_read_blocking)
       }
     }
   }
+  last_tdo = !!(*rx_last_byte_p & 1);
   //fix the last byte
   if (last_shift) 
     *rx_last_byte_p = *rx_last_byte_p << last_shift;
@@ -158,10 +161,8 @@ uint8_t __time_critical_func(pio_jtag_write_tms_blocking)
       }
     }
   }
-  //fix the last byte
-  if (last_shift)
-    x = x << last_shift;
-  return x;
+  last_tdo = !!(x & 1);
+  return last_tdo ? 0xFF : 0x00;
 }
 
 static void init_jtag_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst)
@@ -262,6 +263,8 @@ void jtag_transfer(const pio_jtag_inst_t *jtag, uint32_t length, const uint8_t* 
 
 uint8_t jtag_strobe(const pio_jtag_inst_t *jtag, uint32_t length, bool tms, bool tdi)
 {
+  if (! length)
+    return jtag_get_tdo(jtag) ? 0xFF : 0x00;
   return pio_jtag_write_tms_blocking(jtag, tdi, tms, length);
 }
 
@@ -283,5 +286,5 @@ void jtag_set_clk(const pio_jtag_inst_t *jtag, bool value)
 
 bool jtag_get_tdo(const pio_jtag_inst_t *jtag)
 {
-  return !! toggle_bits_in_buffer[0];
+  return last_tdo;
 }
