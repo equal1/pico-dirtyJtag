@@ -43,7 +43,25 @@
 //#define cmd_printf(...) printf(__VA_ARGS__)
 #define cmd_printf(...) (void)(__VA_ARGS__)
 
-unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
+#define GET_HWORD_AT(ptr) \
+  (((uint32_t)((ptr)[0])) | \
+   ((uint32_t)((ptr)[1]) << 8))
+#define GET_WORD_AT(ptr) \
+  (((uint32_t)((ptr)[0])) | \
+   ((uint32_t)((ptr)[1]) << 8) | \
+   ((uint32_t)((ptr)[2]) << 16) | \
+   ((uint32_t)((ptr)[3]) << 24))
+
+#define SET_HWORD_AT(ptr,data) \
+   ((ptr)[0] = data & 0xFF, \
+    (ptr)[1] = data >> 8)
+#define SET_WORD_AT(ptr,data) \
+   ((ptr)[0] = data & 0xFF, \
+    (ptr)[1] = data >> 8, \
+    (ptr)[2] = data >> 16, \
+    (ptr)[3] = data >> 24)
+
+ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
   unsigned cmdpos = 0, resppos = 0;
   int pin, cfg; // pin config
@@ -144,9 +162,9 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       unsigned result = 0;
       if (pindesc.valid)
         result = pincfg_get(pin, pindesc.on_iox);
-      respbuf[resppos++] = result & 0xff;
-      respbuf[resppos++] = result >> 8;
-      cmd_printf("       > %04X\n", result);
+      SET_HWORD_AT(respbuf+resppos, result);
+      resppos += 2;
+      cmd_printf("\t> %04X\n", result);
       cmdpos += 2;
       break;
 
@@ -169,8 +187,8 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
         jtag_set_tdi(jtag, m & SIG_TDI);
       if (n & SIG_TMS)
         jtag_set_tms(jtag, m & SIG_TMS);
-      if (n & SIG_TRST)
-        jtag_set_trst(jtag, m & SIG_TRST);
+      //if (n & SIG_TRST)
+      //  jtag_set_trst(jtag, m & SIG_TRST);
       if (n & SIG_SRST)
         jtag_set_rst(jtag, m & SIG_SRST);
       cmdpos += 3;
@@ -205,18 +223,145 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       if (cmd & EXTEND_LENGTH)
         n += 256;
       m = (n + 7) / 8;
-      if (! (cmd & NO_READ))
-        cmd_printf(" %c# @%u CMD_XFER%s,NOREAD %u\n", buf, cmdpos,
-                    (n >= 256)?",LARGE":"", n);
-      else
-        cmd_printf(" %c# @%u CMD_XFER%s %u >%u\n", buf, cmdpos,
-                    (n >= 256)?",LARGE":"", n, m);
+      if (cmd & NO_READ)
+        m = 0;
+      cmd_printf(" %c# @%u CMD_XFER %u >%u\n", buf, cmdpos, n, m);
       // we can probably get away with using the response buffer even if the
       // read isn't requested
       jtag_transfer(jtag, n, cmdbuf+cmdpos+2, respbuf+resppos);
-      if (! (cmd & NO_READ))
-        resppos += m;
-      cmdpos += m + 2;
+      resppos += m;
+      cmdpos += ((n + 7) / 8) + 2;
+      break;
+
+    // count devices in the chain using BYPASS mode
+    // returns a single uint8_t
+    case XCMD_BYPASS_COUNT:
+      cmd_printf(" %c# @%u XCMD_BYPASS\n", buf, cmdpos);
+      n = jtag_do_bypass();
+      cmd_printf("\t> %u\n", n);
+      respbuf[resppos++] = n;
+      cmdpos++;
+      break;
+
+    // get the device IDCODEs from the chain
+    // returns a single zero if no devices, or 4*n_idcodes
+    case XCMD_GET_IDCODES:
+      cmd_printf(" %c# @%u XCMD_GET_IDCODES\n", buf, cmdpos);
+      static uint32_t idcodes[16];
+      n = jtag_get_idcodes(idcodes);
+      if (!n) {
+        cmd_printf("\t> %d", 0);
+        respbuf[resppos++] = 0;
+      } else {
+        cmd_printf("\t> %d: %08X%s\n", n, idcodes[0], (n > 1)?"...":"");
+        memcpy(respbuf + resppos, idcodes, 4*n);
+        resppos += 4*n;
+      }
+      cmdpos++;
+      break;
+
+    // configure jtagx mode
+    case XCMD_CONFIG:
+      cmd_printf(" %c# @%u XCMD_CONFIG\n", buf, cmdpos);
+      cmdpos += 1 + jtag_set_config(cmdbuf + cmdpos + 1);
+      break;
+
+    // perform scans
+    case XCMD_IRSCAN:
+    case XCMD_IRSCAN|EXTEND_LENGTH:
+    case XCMD_IRSCAN|NO_READ:
+    case XCMD_IRSCAN|EXTEND_LENGTH|NO_READ:
+    case XCMD_DRSCAN:
+    case XCMD_DRSCAN|EXTEND_LENGTH:
+    case XCMD_DRSCAN|NO_READ:
+    case XCMD_DRSCAN|EXTEND_LENGTH|NO_READ:
+      n = cmdbuf[cmdpos+1]; // number of bits to transfer
+      if (cmd & EXTEND_LENGTH)
+        n += 256;
+      m = (n + 7) / 8;
+      if (cmd & NO_READ)
+        m = 0;
+      int ir = (cmd & ~(EXTEND_LENGTH|NO_READ)) == XCMD_IRSCAN;
+      cmd_printf(" %c# @%u CMD_%cRSCAN %u >%u\n", buf, cmdpos, ir?'I':'D', n, m);
+      // we can probably get away with using the response buffer even if the
+      // read isn't requested
+      resppos += jtag_do_scan(ir?1:0, n, cmdbuf+cmdpos+2, m ? respbuf+resppos : NULL);
+      cmdpos += ((n + 7) / 8) + 2;
+      break;
+
+    // perform an ABORT
+    case XCMD_ABORT:
+      // grab the command byte
+      n = cmdbuf[cmdpos+1];
+      cmd_printf(" %c# @%u ABORT 0x%02X\n", buf, cmdpos, n);
+      // do the abort
+      n = jtag_abort(n);
+      // no response to ABORT
+      cmdpos += 2;
+      break;
+
+    // perform a DPACC read
+    case XCMD_DPACC_RD:
+      // grab the address, 6-bits, rshifted by 2: (0..0xfc)>>2
+      n = (cmdbuf[cmdpos+1] & 0x3f) << 2;
+      cmd_printf(" %c# @%u DPACC_RD @0x%02X\n", buf, cmdpos, n);
+      // do the read
+      n = jtag_dpacc_rd(n, (uint32_t*)&m);
+      // prepare the response
+      respbuf[resppos] = n;
+      SET_WORD_AT(respbuf+resppos+1, m);
+      cmdpos += 2; resppos += 5;
+      cmd_printf("\t> (%X) %08X\n", n, m);
+      break;
+
+    // perform a DPACC write
+    case XCMD_DPACC_WR:
+      // grab the address, 6-bits, rshifted by 2: (0..0xfc)>>2
+      n = (cmdbuf[cmdpos+1] & 0x3f) << 2;
+      // grab the data
+      m = GET_WORD_AT(cmdbuf+cmdpos+2);
+      cmd_printf(" %c# @%u DPACC_WR @0x%02X 0x%X\n", buf, cmdpos, n, m);
+      // do the write
+      n = jtag_dpacc_wr(n, m);
+      // prepare the response
+      respbuf[resppos] = n;
+      cmdpos += 6; resppos += 1;
+      cmd_printf("\t> (%X)\n", n);
+      break;
+
+    // perform an APACC read
+    case XCMD_APACC_RD:
+      // grab the AP
+      n = cmdbuf[cmdpos+1];
+      // grab the address, 11-bits, rshifted by 2: (0..0x1ffc)>>2
+      m = (GET_HWORD_AT(cmdbuf+cmdpos+2) & 0x7ff) << 2;
+      cmd_printf(" %c# @%u APACC_RD%s @%u:0x%04X\n", buf, cmdpos,
+                 (n >> 7)?"\'":"", n & 0x7f, m );
+      // do the read
+      n = jtag_apacc_rd(n, m, (uint32_t*)&m);
+      // prepare the response
+      respbuf[resppos] = n;
+      SET_WORD_AT(respbuf+resppos+1, m);
+      cmdpos += 4; resppos += 5;
+      cmd_printf("\t> (%X) %08X\n", n, m);
+      break;
+
+    // perform an APACC write
+    case XCMD_APACC_WR:
+      // grab the AP
+      n = cmdbuf[cmdpos+1];
+      // grab the address, 11-bits, rshifted by 2: (0..0x1ffc)>>2
+      m = (GET_HWORD_AT(cmdbuf+cmdpos+2) & 0x7ff) << 2;
+      // grab the data
+      uint32_t p = GET_WORD_AT(cmdbuf+cmdpos+4);
+      cmd_printf(" %c# @%u APACC_WR%s @%u:0x%04X 0x%08X\n", buf, cmdpos,
+                 (n >> 7)?"\'":"", n & 0x7f, m, p );
+      // do the write
+      n = jtag_apacc_wr(n, m, p);
+      // prepare the response
+      respbuf[resppos] = n;
+      cmd_printf("\t> (%X)\n", n);
+      cmdpos += 8; resppos += 1;
       break;
 
     case CMD_ADC_GETREGS:

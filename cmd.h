@@ -20,6 +20,7 @@
 */
 
 #include <stdint.h>
+#include "pio_jtag.h"
 
 /**
  * @brief Handle a DirtyJTAG command
@@ -69,6 +70,25 @@ enum CommandIdentifier {
   CMD_ADC_CHREAD_SCAN = 0x12, // DirtyJTAG extension: do a read on any channels combination using SCAN mode
   CMD_ADC_SETREG = 0x13, // DirtyJTAG extension: set a single ADC register
   CMD_ADC_SAMPLE = 0x14, // DirtyJTAG extension: kick off a single conversion and return result
+  // equal1 accelerated commands
+  // - general purpose
+  XCMD_BYPASS_COUNT = 0x15,
+  XCMD_GET_IDCODES = 0x16,
+  // - target config (xRSCAN, ARM commands, CPU and SYS default APs)
+  XCMD_CONFIG = 0x17,
+  XCMD_IRSCAN = 0x18,
+  XCMD_DRSCAN = 0x19,
+  // - DPACC, APACC and ABORT
+  XCMD_ABORT = 0x1A,
+  XCMD_DPACC_RD = 0x1B,
+  XCMD_DPACC_WR = 0x1C,
+  XCMD_APACC_RD = 0x1D,
+  XCMD_APACC_WR = 0x1E,
+  // - bus (SYS) and CPU accesses
+  XCMD_BUS_RD = 0x1F,
+  XCMD_BUS_WR = 0x20,
+  XCMD_CPU_RD = 0x21,
+  XCMD_CPU_WR = 0x22,
 };
 
 enum CommandModifier
@@ -87,6 +107,145 @@ enum SignalIdentifier {
   SIG_TDI = 1 << 2,
   SIG_TDO = 1 << 3,
   SIG_TMS = 1 << 4,
-  SIG_TRST = 1 << 5,
+  // SIG_TRST = 1 << 5,
   SIG_SRST = 1 << 6
 };
+
+// the structure that gets passed by GETCLK (defined in pio_jtag.h)
+struct djtag_clk_s;
+
+// configure the target device; takes in the structure
+struct djtag_cfg_s { 
+  // for xRSCAN
+  struct {
+     uint8_t lead1s, tail1s;
+  } ir, dr; 
+  // - bitmaps of the ARM commands
+  uint32_t dpacc, apacc, abort;
+  // for the ARM commands
+  // - size in bits of the IR
+  uint8_t ir_size;
+  // - number of extra clock cycles to apply in RTI after the command
+  ///  was sent
+  uint8_t armcmd_xcycles;
+  // for fast accesses - index of the sys and cpu APs
+  uint8_t sys_ap, cpu_ap;
+};
+
+// capabilities: available commands
+
+// count devices in the JTAG chain, using the BYPASS method
+//   returns 0 for no devices, FF for chain disconnected, or the
+//   number of devices (scans ups to 64 devices)
+#define CAP_BYPASS_COUNT 0x00000001
+// get the IDCODES; returns a single 00 if none found, FF for chain
+//   disconnected, or the list of devices in the chain
+#define CAP_GET_IDCODES  0x00000002
+
+#define CAP_CONFIG  0x00000004
+
+// perform scans; same format and arguments as CMD_XFER (they honor NO_READ
+//   and EXTEND_LENGTH), /but/ data doesn't have to be bit-swapped on either input
+//   or output
+// these scans leave the JTAG FSM in RTI
+#define CAP_SCAN  0x00000008
+
+// ARM-specific commands
+
+// these use the codes as configured with XCMD_CONFIG, take in 2 words
+// (address, data), plus 1 byhe status bits
+int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data);
+int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data);
+
+// addr[0] is the R/W# bit
+// addr[1] is is the extra-idle-clocks enable bit
+// without NO_READ, they return the result word, followed by the status byte ([2:0]);
+// with NO_READ, only the status byte is returned
+// 
+#define CAP_ABORT   0x00000010
+#define CAP_DPACC   0x00000020
+#define CAP_APACC   0x00000040
+
+// perform bus accesses on a specified AP, as configured with XCMD_CONFIG
+// these are automatically retried on wait, aborted on 2nd wait
+
+// read takes in the 1-byte AP index, and the 1-word target address;
+// returns either 1 byte on error, or 4 bytes (the result) on success
+#define CAP_READ_AP  0x00000080
+// write takes in the 1-byte AP index, and the 1-word target address;
+// returns the 1 byte status byte
+#define CAP_WRITE_AP 0x00000100
+
+// perform bus accesses on the SYS AP
+// identical to CAP_{READ_WRITE}_AP, except they use the SYSAP configured
+// with XCMD_CONFIG
+
+#define CAP_SYS_RD  0x00000200
+#define CAP_SYS_WR  0x00000400
+
+// perform bus accesses on the CPU AP
+// identical to CAP_{READ_WRITE}_AP, except they use the CPUAP configured
+// with XCMD_CONFIG
+
+#define CAP_CPU_RD  0x00000800
+#define CAP_CPU_WR  0x00001000
+
+
+//=[ jtagx api ]===============================================================
+
+// count devices in the JTAG chain, using the BYPASS method
+//   returns 0 for no devices, FF for chain disconnected, or the
+//   number of devices
+unsigned jtag_do_bypass();
+
+// get the IDCODEs in the chain
+//   returns 0xFF is TDO is stuck at zero, or the number of devices (scans ups
+//   to 16 (=512/32) devices)
+unsigned jtag_get_idcodes(uint32_t *idcode);
+
+// load the jcfg structure from the client
+//   returns the size of the jtag structure
+unsigned jtag_set_config(const void *cfg);
+
+// perform a JTAG scan
+// this is very similar to CMD_XFER, except
+// - it also handles the last bit
+// - the JTAG FSM will be left in Run-Test-Idle
+// - bitswapping is performed (the client needn't do it)
+// for DR scans _only_, bits [7:1] of ir represents the number of extra cycles
+//   to stay in RTI after the scan (the XCMD interface does not expose this
+//   however)
+// a null OUT causes that number of 1s to be scanned out
+// a null IN discards the scan result (also, the result value is set to zero)
+// returns the number of input _bytes_
+unsigned jtag_do_scan(int ir, unsigned n_bits, const void *out, void *in);
+
+// ABORT
+int jtag_abort(int arg);
+// DPACC reads and writes
+// they return the status bits
+int jtag_dpacc_rd(uint32_t addr, uint32_t *data);
+int jtag_dpacc_wr(uint32_t addr, uint32_t data);
+// APACC reads and writes
+// they return the status bits
+int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data);
+int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data);
+
+// BYPASS_COUNT and GET_IDCODES ignore config
+// IRSCAN, DRSCAN use only config.{ir|dr}.{lead1s|tail1s}
+//   (in particular, IRSCAN ignores config.ir_size)
+// ABORT, {DP|AP}ACC_{RD|WR} addtionally use config.ir_size and config.{abort|dpacc|apacc}
+// APACC_{RD|WR} addtionally use config.armcmd_xcycles
+// {BUS|CPU}_{RD|WR} target the 
+
+#define IMPLEMENTED_CAPS ( \
+  CAP_BYPASS_COUNT | CAP_GET_IDCODES | \
+  CAP_CONFIG | \
+  CAP_SCAN | \
+  CAP_ABORT | CAP_DPACC | CAP_APACC | \
+  0)
+
+// CAP_SCAN: IRSCAN, DRSCAN implemented
+// CAP_ABORT: ABORT implemented
+// CAP_DPACC: DPACC_RD, DPACC_WR implemented
+// CAP_APACC: APACC_RD, APACC_WR implemented

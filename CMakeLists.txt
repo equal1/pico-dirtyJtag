@@ -34,6 +34,7 @@ add_executable(dirtyJtag
 		main.c
 		cmd.c
 		pio_jtag.c
+		jtagx.c
 		a5pins.c
 		adc.c
 		utils.c

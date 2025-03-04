@@ -456,9 +456,10 @@ void whoami_init()
   ipconfig_ptr = 0;
   unsigned sysclk_khz = (clock_get_hz(clk_sys) + 500)/ 1000;
   // print the version
-  p += sprintf(p, "equal1 JTAG (%s, %s%s %s)\n",
+  p += sprintf(p, "equal1 JTAG (%s, %s%s %s) caps=0x%08X\n",
                git_Branch, git_Describe, git_AnyUncommittedChanges?"(dirty)":"",
-                git_Remote);
+                git_Remote,
+               IMPLEMENTED_CAPS);
   // print what we're running on
   p += sprintf(p, "  running from %s on %s (%s@%u.%uMHz), host board %s\n",
                location_of(main),

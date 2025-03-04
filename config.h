@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 
 #if PICO_RP2350
 # define BOARD_NAME "pico2"
