@@ -520,6 +520,7 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
   addr &= 0x1ffc; // AP space is 32KB, and all regs are word-aligned
   uint32_t taddr = addr | (ap << 13);
   uint64_t tmp;
+
   // reprogram DP.SELECT.ADDR if need be
   if ((last.select & ~0xf) != (taddr & ~0xf)) {
     // select DPACC
@@ -533,6 +534,7 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
     dprintf ("jtag.dp.select=0x%06X:%X\n", new_select >> 4, new_select&0xf);
     jtag_do_scan(0, 35, &tmp, NULL);
   }
+
   // if the last IR scan selected something other than APACC, select APACC now
   if (last.ir != jcfg.apacc) {
     dprintf ("jtag.ir=%u'b%0*b # apacc\n", jcfg.ir_size, jcfg.ir_size, jcfg.apacc);
@@ -542,18 +544,18 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
   tmp = MK_JTAG_READ(taddr, 0);
   dprintf ("? jtag.apacc addr[3:2]=2'b%02b # issue the read (%u extra cycles)\n", (addr >> 2)&3, jcfg.armcmd_xcycles);
   jtag_do_scan((jcfg.armcmd_xcycles << 1), 35, &tmp, NULL);
+
   // read result can be fetched either via APACC read from same address,
   // or from DPACC read from RDBUFF
   if (! do_rdbuff_check) {
-    // re-issue the read to get the result
+    // re-issue the read to get the result (APACC already selected, and tmp is fine)
     dprintf ("? jtag.apacc addr[3:2]=2'b%02b # fetch the result\n", (addr >> 2)&3);
     jtag_do_scan(0, 35, &tmp, &tmp);
   }
   else {
-    // select DPACC
+    // select DPACC and read RDBUFF
     dprintf ("jtag.ir=%u'b%0*b # dpacc\n", jcfg.ir_size, jcfg.ir_size, jcfg.dpacc);
     jtag_do_scan(1, jcfg.ir_size, &jcfg.dpacc, NULL);
-    // get the result: ? DPREG(RDBUFF)
     *(uint8_t*)&tmp = MK_JTAG_READ(DP_RDBUFF, 0); // 3'b111
     dprintf ("? jtag.dp.rdbuff # fetch the result\n");
     jtag_do_scan(0, 35, &tmp, &tmp);
@@ -564,22 +566,17 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
   int status = (int)tmp & 0x7;
 
   // if we got WAIT, do 16 TCK pulses and retry ONCE
+  // the right IR is still selected, but tmp was changed
   if (status == JTAG_WAIT) {
     dprintf ("jtag_strobe(16) # got WAIT - retry after 16 TCK pulses\n", (addr >> 2)&3);
     jtag_strobe(&jtag, 16, 0, SIG_TDI);
     if (! do_rdbuff_check) {
-      // re-issue the read to get the result
+      tmp = MK_JTAG_READ(taddr, 0);
       dprintf ("? jtag.apacc addr[3:2]=2'b%02b # try #2\n", (addr >> 2)&3);
       jtag_do_scan(0, 35, &tmp, &tmp);
     }
     else {
-      // select DPACC
-      if (last.ir != jcfg.dpacc)  {
-        dprintf ("jtag.ir=%u'b%0*b # dpacc\n", jcfg.ir_size, jcfg.ir_size, jcfg.dpacc);
-        jtag_do_scan(1, jcfg.ir_size, &jcfg.dpacc, NULL);
-      }
-      // get the result: ? DPREG(RDBUFF)
-      *(uint8_t*)&tmp = MK_JTAG_READ(DP_RDBUFF, 0); // 3'b111
+      tmp = MK_JTAG_READ(DP_RDBUFF, 0); // 3'b111
       dprintf ("? jtag.dp.rdbuff # try #2\n");
       jtag_do_scan(0, 35, &tmp, &tmp);
     }
@@ -587,8 +584,10 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
       *data = (uint32_t)(tmp >> 3);
     status = (int)tmp & 0x7;
   }
-  // if we got FAULT (either after the first try, or after the re-try), issue the abort immediately
-  if (status == JTAG_FAULT) {
+
+  // if we got anything other than OK or WAIT (either after the first try, or after the re-try), issue the abort immediately
+  // normally this means FAULT, but also applies to bad status bits
+  if ((status != JTAG_OK) && (status != JTAG_WAIT)) {
     dprintf ("jtag_abort(5'b%05b) # got FAULT - ABORT the AP access\n", ABORT_ALL);
     jtag_abort(ABORT_ALL);
   }
@@ -607,6 +606,7 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
   addr &= 0x1ffc; // AP space is 32KB, and all regs are word-aligned
   uint32_t taddr = addr | (ap << 13);
   uint64_t tmp;
+
   // reprogram DP.SELECT.ADDR if need be
   if ((last.select & ~0xf) != (taddr & ~0xf)) {
     // select DPACC
@@ -620,6 +620,7 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
     dprintf ("jtag.dp.select=0x%06X:%X\n", new_select >> 4, new_select&0xf);
     jtag_do_scan(0, 35, &tmp, NULL);
   }
+
   // if the last IR scan selected something other than APACC, select APACC now
   if (last.ir != jcfg.apacc) {
     dprintf ("jtag.ir=%u'b%0*b # apacc\n", jcfg.ir_size, jcfg.ir_size, jcfg.apacc);
@@ -629,47 +630,46 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
   tmp = MK_JTAG_WRITE(taddr, data);
   dprintf ("jtag.apacc[2'b%02b]=0x%08X # issue the write (%u extra cycles)\n", (addr >> 2)&3, data, jcfg.armcmd_xcycles);
   jtag_do_scan((jcfg.armcmd_xcycles << 1), 35, &tmp, NULL);
+
   // to get the status bits, either issue an APACC read from the same address,
   // or do a DPACC read from RDBUFF
   if (! do_rdbuff_check) {
-    // issue a read to the same address, just to get the last status bits
+    // issue a read to the same address, just to get the last status bits (APACC still selected)
     tmp = MK_JTAG_READ(taddr, 0);
     dprintf ("? jtag.apacc addr[3:2]=2'b%02b # fetch the status\n", (addr >> 2)&3);
     jtag_do_scan((jcfg.armcmd_xcycles << 1), 35, &tmp, &tmp);
   }
   else {
-    // select DPACC
+    // select DPACC and read RDBUFF, just to get the status bits
+    dprintf ("jtag.ir=%u'b%0*b # dpacc\n", jcfg.ir_size, jcfg.ir_size, jcfg.dpacc);
     jtag_do_scan(1, jcfg.ir_size, &jcfg.dpacc, NULL);
-    // get the result: ? DPREG(RDBUFF)
-    *(uint8_t*)&tmp = MK_JTAG_READ(DP_RDBUFF, 0); // 3'b111
+    tmp = MK_JTAG_READ(DP_RDBUFF, 0); // 3'b111
     dprintf ("? jtag.dp.rdbuff # fetch the status\n");
     jtag_do_scan(0, 35, &tmp, &tmp);
   }
   int status = (int)tmp & 0x7;
+
   // if we got WAIT, do 16 TCK pulses and retry ONCE
+  // the right IR is still selected, but tmp was changed
   if (status == JTAG_WAIT) {
     dprintf ("jtag_strobe(16) # got WAIT - retry after 16 TCK pulses\n", (addr >> 2)&3);
     jtag_strobe(&jtag, 16, 0, SIG_TDI);
     if (! do_rdbuff_check) {
-      // re-issue the read to get the result
       dprintf ("? jtag.apacc addr[3:2]=2'b%02b # try #2\n", (addr >> 2)&3);
+      tmp = MK_JTAG_READ(taddr, 0);
       jtag_do_scan(0, 35, &tmp, &tmp);
     }
     else {
-      // select DPACC
-      if (last.ir != jcfg.dpacc)  {
-        dprintf ("jtag.ir=%u'b%0*b # dpacc\n", jcfg.ir_size, jcfg.ir_size, jcfg.dpacc);
-        jtag_do_scan(1, jcfg.ir_size, &jcfg.dpacc, NULL);
-      }
-      // get the result: ? DPREG(RDBUFF)
-      *(uint8_t*)&tmp = MK_JTAG_READ(DP_RDBUFF, 0); // 3'b111
       dprintf ("? jtag.dp.rdbuff # try #2\n");
+      tmp = MK_JTAG_READ(DP_RDBUFF, 0); // 3'b111
       jtag_do_scan(0, 35, &tmp, &tmp);
     }
     status = (int)tmp & 0x7;
   }
-  // if we got FAULT (either after the first try, or after the re-try), issue the abort immediately
-  if (status == JTAG_FAULT) {
+
+  // if we got anything other than OK or WAIT (either after the first try, or after the re-try), issue the abort immediately
+  // normally this means FAULT, but also applies to bad status bits
+  if ((status != JTAG_OK) && (status != JTAG_WAIT)) {
     dprintf ("jtag_abort(5'b%05b) # got FAULT - ABORT the AP access\n", ABORT_ALL);
     jtag_abort(ABORT_ALL);
   }
