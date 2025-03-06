@@ -128,3 +128,7 @@
 #define PIN_A5_GPIO14   (IOX_PIN_BASE|13) // P13, iox.18
 #define PIN_A5_GPIO15   (IOX_PIN_BASE|14) // P14, iox.19
 #define PIN_A5_GPIO16   (IOX_PIN_BASE|15) // P15, iox.20
+
+#if (PIN_A5_TILESEL1 != (PIN_A5_TILESEL0+1))
+# error TILESEL pins are assigned wrong
+#endif

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <config.h>
 
 // API for dealing with the A5 signals, other than the JTAG/UART/SPI signals
 
@@ -53,6 +54,10 @@ int iox_get_pin_value(int); // this tells you what's really on the pin
 
 // read value for all iox pins
 int32_t iox_get_all();
+// read config for all iox pins (0=output, 1=input)
+int32_t iox_getcfg_all();
+// read pullup config for all iox pins (0=output, 1=input)
+int32_t iox_getpull_all();
 // set output value for all iox pins
 int iox_set_all(uint32_t all);
 // configure all iox pins (0=out, 1=in)
@@ -164,3 +169,8 @@ const char *describe_pincfg(int cfg, int with_out, int on_iox);
 #define IOX_CMD_SET    IOX_REG_OCR
 #define IOX_CMD_CFG    IOX_REG_GCR
 #define IOX_CMD_PULLUP IOX_REG_PUR
+
+#define TILESEL_POS  (PIN_A5_TILESEL0&~IOX_PIN_BASE)
+#define TILESEL_MASK (0b11 << TILESEL_POS)
+#define CLKSRC_POS   (PIN_A5_CLKSRC&~IOX_PIN_BASE)
+#define CLKSRC_MASK  (0b1 << CLKSRC_POS)

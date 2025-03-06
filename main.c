@@ -148,6 +148,7 @@ int main()
   printf("\n----\n%s----\n", whoami);
   // print the initial TILESEL/CLKSRC
   iox_debug();
+  printf("initial jcfg tile: %u\n", (iox_get_all() & TILESEL_MASK) >> TILESEL_POS);
   if (board_has_ethernet()) {
     // magic call that re-prints the last state (and updates whoami)
     notify_ip_config(-1,(const char*)-1, 0);

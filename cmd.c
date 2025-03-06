@@ -61,15 +61,18 @@
     (ptr)[2] = data >> 16, \
     (ptr)[3] = data >> 24)
 
- unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
+unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
   unsigned cmdpos = 0, resppos = 0;
   int pin, cfg; // pin config
   struct pindesc_s pindesc; // pin description
   extern struct djtag_clk_s djtag_clocks;
   int n, m;
-  int do_iox_debug = 0;
   //cmd_printf("buf=%c(%p) sz=%u\n", buf, cmdbuf, cmdsz);
+  struct {
+    uint32_t pin, cfg, pull;
+  } last, crt;
+  int have_pincfg_set = 0;
   while (cmdpos < cmdsz) {
     uint8_t cmd = cmdbuf[cmdpos];
     if (cmd == CMD_STOP) {
@@ -148,8 +151,13 @@
                   pin, pindesc.location, pindesc.signal, cfg, 
                   describe_pincfg(cfg, 1, pindesc.on_iox));
       if (pindesc.valid) {
+        if (pindesc.on_iox && ! have_pincfg_set) {
+          have_pincfg_set = 1;
+          last.pin = iox_get_all();
+          last.cfg = iox_getcfg_all();
+          last.pull = iox_getpull_all();
+        }
         pincfg_set(pin, cfg, pindesc.on_iox);
-        do_iox_debug = 1;
       }
       cmdpos += 3;
       break;
@@ -446,9 +454,25 @@
       break;
     }
   }
-  if (do_iox_debug)
-    iox_debug();
-  // protocol forbids responses that are a multiple of 64 bytes, sof if that was the case, add one extra byte
+  if (have_pincfg_set) {
+    crt.pin = iox_get_all();
+    crt.cfg = iox_getcfg_all();
+    crt.pull = iox_getcfg_all();
+    // if, and only if, both TILESEL pins are outputs
+    if (! (crt.cfg & TILESEL_MASK)) {
+      // if a TILESEL pins was previously an input, or if the the value changed
+      if ((last.cfg & TILESEL_MASK) ||
+          (last.pin & TILESEL_MASK) != (crt.pin & TILESEL_MASK))
+        jcfg_set_tilesel((crt.pin & TILESEL_MASK) >> TILESEL_POS);
+    }
+    if ((last.pull != crt.pull) || (last.cfg != crt.cfg) ||
+        ((last.pin & ~last.cfg) != (crt.pin & ~crt.cfg)))
+      iox_debug();
+    else
+      printf("IOX: nothing changed (TILESEL=%u, CLKSRC=%u)\n", 
+        (crt.pin & TILESEL_MASK) >> TILESEL_POS, (crt.pin & CLKSRC_MASK) >> CLKSRC_POS);
+  }
+  // protocol forbids responses that are a multiple of 64 bytes, so if that was the case, add one extra byte
   // there is one obvious exception, the null response
   if (resppos && ! (resppos & 63)) {
     cmd_printf(" %c# resp_sz=0x%X; padding\n", buf, resppos);

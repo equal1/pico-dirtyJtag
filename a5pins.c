@@ -7,6 +7,7 @@
 
 #include "config.h"
 #include "a5pins.h"
+#include "cmd.h" // for jcfg_set_tilesel()
 
 int iox_spi_speed;
 void iox_init()
@@ -79,6 +80,14 @@ static int32_t iox_writecmd_all(unsigned cmd, uint32_t all) {
 // (for output pins, we get the intended output value, not the actual value)
 int32_t iox_get_all() {
   return iox_readcmd_all(IOX_CMD_GET);
+}
+// get all the pins' config
+int32_t iox_getcfg_all() {
+  return iox_readcmd_all(IOX_CMD_CFG);
+}
+// get all the pins' pullup settings
+int32_t iox_getpull_all() {
+  return iox_readcmd_all(IOX_CMD_PULLUP);
 }
 
 // set all the pins
@@ -251,6 +260,8 @@ int a5_iox_pins_init() {
   iox_writecmd_all(IOX_CMD_PULLUP, last_pullup_values);
   // configure the pin directions
   iox_writecmd_all(IOX_CMD_CFG, last_config_values);
+  // set the initial tilesel
+  jcfg_set_tilesel((last_output_values & TILESEL_MASK) >> TILESEL_POS);
   return 0;
 }
 
@@ -264,13 +275,12 @@ void iox_debug() {
   unsigned cfg = iox_readcmd_all(IOX_CMD_CFG);
   unsigned pullup = iox_readcmd_all(IOX_CMD_PULLUP);
   unsigned rdinv = iox_readcmd_all(IOX_REG_PIR);
-  const unsigned tilesel_mask = (1<<(PIN_A5_TILESEL1&0xF)) | (1<<(PIN_A5_TILESEL0&0xF));
   printf("IOX: GSR=%04X OCR=%04X GCR=%04X PIR=%04X PUR=%04X\n"
          "     TILESEL=", get, set, cfg, rdinv, pullup);
-  if (cfg & tilesel_mask)
+  if (cfg & TILESEL_MASK)
     printf("floating");
   else
-    printf("%u", (set & tilesel_mask) >> (PIN_A5_TILESEL0&0xF));
+    printf("%u", (set & TILESEL_MASK) >> TILESEL_POS);
   printf(" CLKSRC=");
   if (cfg & (1<<(PIN_A5_CLKSRC&0x1f)))
     printf("floating\n");

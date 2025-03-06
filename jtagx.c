@@ -29,8 +29,8 @@ static struct djtag_cfg_s jcfg = {
   .apacc = 0b1011, // 0xB
   .ir_size = 4,
   .armcmd_xcycles = 8, // cycles after issuing a read/write with APACC, before checking the result
-  .cpu_ap = 0x06000 >> 13, // tile 1 CPU AP base address
-  .sys_ap = 0x08000 >> 13  // tile 1 MEM AP base address
+  .cpu_ap = 0, // these get set via XCMD_CONFIG,
+  .sys_ap = 0  // or whenever PINCFG changes the value of TILESEL
 };
 
 // ARM's DPACC/APACC commands
@@ -55,6 +55,19 @@ static struct {
 // void pio_jtag_write_read_blocking(const pio_jtag_inst_t *jtag, const uint8_t *src, uint8_t *dst, size_t len);
 
 extern pio_jtag_inst_t jtag;
+
+//=[ jcfg_set_tilesel() ]------------------------------------------------------
+
+// this gets called whenever tilesel is changed via PINCFG
+void jcfg_set_tilesel(int tile)
+{
+  if ((tile < 0) || (tile > 3))
+    return;
+  if (tile != (((jcfg.cpu_ap >> 13) - 1) >> 1))
+    printf ("set default tile to %d\n", tile);
+  jcfg.cpu_ap = 0x2000 + 0x4000*tile;
+  jcfg.sys_ap = 0x4000 + 0x4000*tile;
+}
 
 //=[ jtag_go_tlr() ]-----------------------------------------------------------
 

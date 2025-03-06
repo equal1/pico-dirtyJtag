@@ -193,6 +193,11 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data);
 
 //=[ jtagx api ]===============================================================
 
+// set default CPU/SYS APs based on what TILESEL points 
+// this overrides the most recent XCMD_SET_CONFIG, but only when TILESEL is
+// actually changed (via PINCFG_SET)
+void jcfg_set_tilesel(int tile);
+
 // count devices in the JTAG chain, using the BYPASS method
 //   returns 0 for no devices, FF for chain disconnected, or the
 //   number of devices
