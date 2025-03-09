@@ -548,12 +548,20 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
     jtag_do_scan(0, 35, &tmp, NULL);
   }
 
+  // it seems that sometimes APACC de-selects itself?
+  // (for example, apacc_wr(tar) right after an apacc_rd(idr) doesn't seem to change TAR,
+  //  unless we either make this unconditional or we issue an abort inbetween)
+  // only apacc_wr() was observed to do this, but for consistency, do it for apacc_rd() too
+# if 0
   // if the last IR scan selected something other than APACC, select APACC now
   if (last.ir != jcfg.apacc) {
+# endif
     dprintf ("jtag.ir=%u'b%0*b # apacc\n", jcfg.ir_size, jcfg.ir_size, jcfg.apacc);
     jtag_do_scan(1, jcfg.ir_size, &jcfg.apacc, NULL);
+# if 0
   }
-  // attempt the register read: ? APREG(addr)
+# endif
+    // attempt the register read: ? APREG(addr)
   tmp = MK_JTAG_READ(taddr, 0);
   dprintf ("? jtag.apacc addr[3:2]=2'b%02b # issue the read (%u extra cycles)\n", (addr >> 2)&3, jcfg.armcmd_xcycles);
   jtag_do_scan((jcfg.armcmd_xcycles << 1), 35, &tmp, NULL);
@@ -634,11 +642,18 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
     jtag_do_scan(0, 35, &tmp, NULL);
   }
 
+  // it seems that sometimes APACC de-selects itself?
+  // (for example, apacc_wr(tar) right after an apacc_rd(idr) doesn't seem to change TAR,
+  //  unless we either make this unconditional or we issue an abort inbetween)
+# if 0
   // if the last IR scan selected something other than APACC, select APACC now
   if (last.ir != jcfg.apacc) {
+# endif
     dprintf ("jtag.ir=%u'b%0*b # apacc\n", jcfg.ir_size, jcfg.ir_size, jcfg.apacc);
     jtag_do_scan(1, jcfg.ir_size, &jcfg.apacc, NULL);
+# if 0
   }
+# endif
   // attempt the register write: APREG(addr):=data
   tmp = MK_JTAG_WRITE(taddr, data);
   dprintf ("jtag.apacc[2'b%02b]=0x%08X # issue the write (%u extra cycles)\n", (addr >> 2)&3, data, jcfg.armcmd_xcycles);
