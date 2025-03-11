@@ -89,6 +89,11 @@ enum CommandIdentifier {
   XCMD_BUS_WR = 0x20,
   XCMD_CPU_RD = 0x21,
   XCMD_CPU_WR = 0x22,
+  XCMD_CPU_WRRD = 0x23, // write and immediately read the register
+  // - bus (SYS) block accesses
+  XCMD_BLOCK_RD   = 0x24,
+  XCMD_BLOCK_WR   = 0x25,
+  XCMD_BLOCK_FILL = 0x26
 };
 
 enum CommandModifier
@@ -137,59 +142,115 @@ struct djtag_cfg_s {
 // count devices in the JTAG chain, using the BYPASS method
 //   returns 0 for no devices, FF for chain disconnected, or the
 //   number of devices (scans ups to 64 devices)
+// commands: XCMD_BYPASS_COUNT
 #define CAP_BYPASS_COUNT 0x00000001
 // get the IDCODES; returns a single 00 if none found, FF for chain
 //   disconnected, or the list of devices in the chain
+// commands: XCMD_GET_IDCODES
 #define CAP_GET_IDCODES  0x00000002
 
+// load the jtagx config structure (struct djtag_cfg_s)
+// that structure is initialized specifically for an ADIv6 Cortex-M0+, and
+//   setting TILESEL automatically changes the default SYS and CPU AP indices
+// HOWEVER. if used, this enables some extra functionality, such as addressing
+//   a specific device in the JTAG chain, or tweaking the number of idle RTI
+//   cycles on APACC accesses
 #define CAP_CONFIG  0x00000004
 
-// perform scans; same format and arguments as CMD_XFER (they honor NO_READ
-//   and EXTEND_LENGTH), /but/ data doesn't have to be bit-swapped on either input
-//   or output
-// these scans leave the JTAG FSM in RTI
+// perform scans; the SCAN commands have exactly the same format and arguments
+//   as CMD_XFER (they honor NO_READ and EXTEND_LENGTH), *but*
+// - they honor the jtagx settings for leading/trailing 1 bits, which enables
+//   targeting a specific device in the JTAG chain
+// - they understand the JTAG FSM, and get to RTI before doing anything
+// - they leave the JTAG FSM in RTI
+// - data is pure little endian (bit reversal and special handling of the last
+//   bit is not required, unlike the CMD_CLK/CMD_XFER/CMD_CLK equivalent)
+// - a DRSCAN issued while IR is set to APACC will have idle RTI cycles added
+//   as configured via CONFIG
+// effectively, these commands render all the "legacy" DirtyJTAG2 commands
+//   obsolete, and significantly minimize the data traffic over the comms
+//   interface - the only instance where the old-style command would be useful
+//   is when a single scan of 512+ bits is required 
+// commands: XCMD_IRSCAN, XCMD_DRSCAN
 #define CAP_SCAN  0x00000008
 
-// ARM-specific commands
-
-// these use the codes as configured with XCMD_CONFIG, take in 2 words
-// (address, data), plus 1 byhe status bits
-int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data);
-int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data);
-
-// addr[0] is the R/W# bit
-// addr[1] is is the extra-idle-clocks enable bit
-// without NO_READ, they return the result word, followed by the status byte ([2:0]);
-// with NO_READ, only the status byte is returned
-// 
+// issue ARM ABORT, DPACC or APACC accesses
+// - the IR codes for these, default to those used by an ADIv6 CortexM0+ CPU;
+//   however, they can be configured differently using XCMD_CONFIG
+// - ABORT is write-only
+//   - has a single 8-bit argument, that gets scanned into bits [10:3] of the
+//     ABORT DR (of these, only bits [7:3] are actually used; 0 is scanned in
+//     the remaining, unused, bits)
+//   - returns nothing
+//   - commands: XCMD_ABORT
+// - DPACC accesses can be reads or writes,
+//   - have a 6-bit address (4-bit bank + 2-bit in-cmd address) encoded as a
+//     single byte; for writes, the 32-bit LE-encoded data value follows;
+//   - return 1 byte containing the status bits [2:0]; for reads, 4 more bytes
+//     with the 32-bit LE-encoded result follow
+//   - DPACC accesses might cause an extra write the DP.SELECT, if the last
+//     used DP register bank is different from the one currently requested
+//   - DPACC reads of SELECT (which is write-only) are not performed; instead,
+//     they return the value most recently written to that register, with the
+//     status set to OK
+//   - commands: XCMD_DPACC_RD, XCMD_DPACC_WR
+// - APACC accesses can be reads or writes,
+//   - have a 5-bit AP index encoded as a byte; bit 7 of that byte directs the
+//     code to perform a DP RDBUFF, instead of an AP same-reg, read, for
+//     fetching the status and, for reads, the result value), and 
+//     - an 11-bit in-AP address, encoded as a LE halfword
+//     - for writes, the 32-bit LE-encoded word to be written follows;
+//   - produce 1 byte containing the status bits, plus (for reads) 4 more bytes
+//     with the LE-encoded result
+//   - APACC accesses typically cause extra writes to DP.SELECT
+//   - APACC accesses add idle cycles in RTI after the request is made (8, by
+//     default; can be changed with XCMD_CONFIG)
+//   - if an APACC access results in WAIT, more (hardcoded: 16) RTI idle cycles
+//     are added, then fetching the result is retried *once*
+//   - if the status (whether of the initial fetch, or of the retry) is anything
+//     *except* OK or WAIT, the transaction is automatically aborted
+//   - commands: XCMD_APACC_RD, XCMD_APACC_WR
 #define CAP_ABORT   0x00000010
 #define CAP_DPACC   0x00000020
 #define CAP_APACC   0x00000040
 
-// perform bus accesses on a specified AP, as configured with XCMD_CONFIG
-// these are automatically retried on wait, aborted on 2nd wait
+// perform bus, and CPU bus, accesses on the currently selected APs
+// - the APs used for these accesses are selected automatically whenever
+//   TILESEL is set, but can be overriden using XCMD_CONFIG
+// - bus reads and writes specify the 4-byte, LE-encoded target address, and
+//   return either 1 byte with the status code, OR (only for succeeded reads)
+//   the 4 bytes containing the LE-encoded read result
+// - CPU bus reads and writes specify the *2*-byte, LE-encoded target address;
+//   this is internally promoted to 0xE0000000|(addr), since the SCB is the
+//   only part of the address space where it makes sense to perform accesses
+//   on the bus, rather than the SYS, bus
+//   return either, or (for reads only) the 4 bytes containing the LE-encoded
+//   read result
+// - on the CPU bus, combined WR/RD is implemented (has the args of a write,
+//   and the result of a read)
+// - commands: XCMD_BUS_RD, XCMD_CPU_RD, XCMD_BUS_WR, XCMD_CPU_WR
+//     XCMD_CPU_WRRD
+#define CAP_BUSACC  0x00000080
 
-// read takes in the 1-byte AP index, and the 1-word target address;
-// returns either 1 byte on error, or 4 bytes (the result) on success
-#define CAP_READ_AP  0x00000080
-// write takes in the 1-byte AP index, and the 1-word target address;
-// returns the 1 byte status byte
-#define CAP_WRITE_AP 0x00000100
-
-// perform bus accesses on the SYS AP
-// identical to CAP_{READ_WRITE}_AP, except they use the SYSAP configured
-// with XCMD_CONFIG
-
-#define CAP_SYS_RD  0x00000200
-#define CAP_SYS_WR  0x00000400
-
-// perform bus accesses on the CPU AP
-// identical to CAP_{READ_WRITE}_AP, except they use the CPUAP configured
-// with XCMD_CONFIG
-
-#define CAP_CPU_RD  0x00000800
-#define CAP_CPU_WR  0x00001000
-
+// perform bus block accesses on the currently selected APs
+// - the AP used for these accesses is selected automatically whenever
+//   TILESEL is set, but can be overriden using XCMD_CONFIG
+// - block accesses are only supported on the SYS AP; such functionality
+//   would make little sense on the CPU AP
+// - reads specify a single byte, containing the number of words to read
+//   *minus 1*, followed by the 4-byte, LE-encoded start address, and return
+//   either a single byte with a failure response code, or 4*n bytes with the
+//   read results
+// - writes specify a single byte, containing the number of words to write
+//   *minus 1*, followed by a 4-byte, LE-encoded start address, and 4*n bytes
+//   containing the values to write; they always return a single byte,
+//   containing the failure response code (even if it is "OK", 3'b100)
+// - fills specify a single byte, containing the number of words to write
+//   *minus 1*, followed by a 4-byte, LE-encoded start address, and 4 bytes
+//   containing the value to write; they always return a single byte,
+//   containing the failure response code (even if it is "OK", 3'b100)
+// - commands: XCMD_BLOCK_RD, XCMD_BLOCK_WR, XCMD_BLOCK_FILL
+#define CAP_BURST   0x00000100
 
 //=[ jtagx api ]===============================================================
 
@@ -236,18 +297,25 @@ int jtag_dpacc_wr(uint32_t addr, uint32_t data);
 int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data);
 int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data);
 
+// SYS and CPU accesses for the currently selected tile
+int jtag_bus_rd(uint32_t addr, uint32_t *data);
+int jtag_bus_wr(uint32_t addr, uint32_t data);
+int jtag_cpu_rd(uint32_t addr, uint32_t *data);
+int jtag_cpu_wr(uint32_t addr, uint32_t data);
+
 // BYPASS_COUNT and GET_IDCODES ignore config
 // IRSCAN, DRSCAN use only config.{ir|dr}.{lead1s|tail1s}
 //   (in particular, IRSCAN ignores config.ir_size)
 // ABORT, {DP|AP}ACC_{RD|WR} addtionally use config.ir_size and config.{abort|dpacc|apacc}
 // APACC_{RD|WR} addtionally use config.armcmd_xcycles
-// {BUS|CPU}_{RD|WR} target the 
+// {BUS|CPU}_{RD|WR} and CPU_WRRD additionally use config.{sys_ap|cpu_ap}
 
 #define IMPLEMENTED_CAPS ( \
   CAP_BYPASS_COUNT | CAP_GET_IDCODES | \
   CAP_CONFIG | \
   CAP_SCAN | \
   CAP_ABORT | CAP_DPACC | CAP_APACC | \
+  CAP_BUSACC | \
   0)
 
 // CAP_SCAN: IRSCAN, DRSCAN implemented

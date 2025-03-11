@@ -372,6 +372,101 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmdpos += 8; resppos += 1;
       break;
 
+    // perform bus reads
+    case XCMD_BUS_RD:
+      // grab the address
+      n = GET_WORD_AT(cmdbuf+cmdpos+1) & ~3;
+      cmd_printf(" %c# @%u BUS_RD 0x%08X\n", buf, cmdpos, n);
+      // perform the read
+      n = jtag_bus_rd(n, (uint32_t*)&m);
+      cmd_printf("\t> (%X) %08X\n", n, m);
+      // prepare the response
+      if (n == 0b100) { // OK
+        SET_WORD_AT(respbuf+resppos, m);
+        resppos += 4;
+      } else
+        respbuf[resppos++] = n;
+      cmdpos += 5;
+      break;
+    case XCMD_CPU_RD:
+      // grab the 16-bit address
+      n = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
+      n |= 0xe0000000; // SCB_BASE
+      cmd_printf(" %c# @%u CPU_RD 0x%08X\n", buf, cmdpos, n);
+      // perform the read
+      n = jtag_cpu_rd(n, (uint32_t*)&m);
+      cmd_printf("\t> (%X) %08X\n", n, m);
+      // prepare the response
+      if (n == 0b100) { // OK
+        SET_WORD_AT(respbuf+resppos, m);
+        resppos += 4;
+      } else
+        respbuf[resppos++] = n;
+      cmdpos += 3;
+      break;
+
+    // perform bus writes
+    case XCMD_BUS_WR:
+      // grab the address
+      n = GET_WORD_AT(cmdbuf+cmdpos+1) & ~3;
+      m = GET_WORD_AT(cmdbuf+cmdpos+5);
+      cmd_printf(" %c# @%u BUS_WR 0x%08X 0x%08X\n", buf, cmdpos, n, m);
+      // perform the write
+      n = jtag_bus_wr(n, m);
+      cmd_printf("\t> (%X)\n", n);
+      // prepare the response
+      respbuf[resppos++] = n;
+      cmdpos += 9;
+      break;
+    case XCMD_CPU_WR:
+      // grab the address
+      n = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
+      m = GET_WORD_AT(cmdbuf+cmdpos+3);
+      n |= 0xe0000000; // SCB_BASE
+      cmd_printf(" %c# @%u CPU_WR 0x%08X 0x%08X\n", buf, cmdpos, n, m);
+      // perform the write
+      n = jtag_cpu_wr(n, m);
+      cmd_printf("\t> (%X)\n", n);
+      // prepare the response
+      respbuf[resppos++] = n;
+      cmdpos += 7;
+      break;
+
+    // perform CPU bus write-and-readback
+    case XCMD_CPU_WRRD:
+      // grab the address
+      n = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
+      m = GET_WORD_AT(cmdbuf+cmdpos+3);
+      n |= 0xe0000000; // SCB_BASE
+      cmd_printf(" %c# @%u CPU_WRRD 0x%08X 0x%08X\n", buf, cmdpos, n, m);
+      // perform the write
+      m = jtag_cpu_wr(n, m);
+      // if the write failed, don't attempt the read back
+      if (m != 0b100) {
+        cmd_printf("\twr> (%X)\n", m);
+        // prepare the response
+        respbuf[resppos++] = n|0x10;
+      }
+      // if it succeeded
+      else {
+        n = jtag_cpu_rd(n, (uint32_t*)&m);
+        cmd_printf("\t> (%X) %08X\n", n, m);
+        if (n == 0b100) { // OK
+          SET_WORD_AT(respbuf+resppos, m);
+          resppos += 4;
+        } else
+          respbuf[resppos++] = n;
+      }
+      cmdpos += 7;
+      break;
+
+#   if 0
+      // - bus (SYS) block accesses
+    case XCMD_BLOCK_RD:
+    case XCMD_BLOCK_WR:
+    case XCMD_BLOCK_FILL:
+      break;
+#   endif
     case CMD_ADC_GETREGS:
       cmd_printf(" %c# @%u ADC_GETREGS\n", buf, cmdpos);
       if (adc_spi_speed) {

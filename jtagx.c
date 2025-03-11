@@ -63,10 +63,11 @@ void jcfg_set_tilesel(int tile)
 {
   if ((tile < 0) || (tile > 3))
     return;
-  if (tile != (((jcfg.cpu_ap >> 13) - 1) >> 1))
+  // print changes, with the except of the 1st one after reboot
+  if ((tile != (((jcfg.cpu_ap >> 13) - 1) >> 1)) && jcfg.cpu_ap)
     printf ("set default tile to %d\n", tile);
-  jcfg.cpu_ap = 0x2000 + 0x4000*tile;
-  jcfg.sys_ap = 0x4000 + 0x4000*tile;
+  jcfg.cpu_ap = 1 + 2*tile;
+  jcfg.sys_ap = 2 + 2*tile;
 }
 
 //=[ jtag_go_tlr() ]-----------------------------------------------------------
@@ -427,8 +428,8 @@ int jtag_abort(int arg)
 #define JTAG_FAULT 0x2
 #define JTAG_OK    0x4
 
-// issue an DPACC read
-// returns the status bits 
+// issue a DPACC read
+// returns the status bits, stores the result to *data
 int jtag_dpacc_rd(uint32_t addr, uint32_t *data)
 {
   // if the last IR scan selecting something other than DPACC, select DPACC now
@@ -471,6 +472,8 @@ int jtag_dpacc_rd(uint32_t addr, uint32_t *data)
 
 //-[ jtag_dpacc_wr() ]---------------------------------------------------------
 
+// issue a DPACC write
+// returns the status bits
 int jtag_dpacc_wr(uint32_t addr, uint32_t data)
 {
   // the only writable registers in out DP are CTRL/STAT and SELECT
@@ -521,8 +524,8 @@ int jtag_dpacc_wr(uint32_t addr, uint32_t data)
 #define MEMAP_BASE       0xDF8 // Debug Base Address; RO
 #define MEMAP_ITSTATUS   0xEFC
 
-// issue an SPACC read
-// returns the status bits 
+// issue an APACC read
+// returns the status bits, stores the result to *data
 int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
 {
   // bit 7 of ap set => read rdbuff to fetch the result
@@ -615,8 +618,10 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
   return status;
 }
 
-//-[ jtag_dpacc_wr() ]---------------------------------------------------------
+//-[ jtag_apacc_wr() ]---------------------------------------------------------
 
+// issue an APACC write
+// returns the status bits
 int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
 {
   // bit 7 of ap set => read rdbuff to fetch the status
@@ -704,3 +709,96 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
   return status;
 }
 
+//=[ jtag_bus_rd() ]===========================================================
+//=[ jtag_cpu_rd() ]===========================================================
+
+// issue a bus read, using the AP selected by jcfg.sys_ap
+// returns the status bits, writes the result to *data
+static int jtag_ap_rd(int ap, uint32_t addr, uint32_t *data)
+{
+  // program AP[jcfg.sys_ap].TAR if need be
+  if ((last.tar[ap] & ~0x3ff) != (addr & ~0x3ff)) {
+    // re-write TAR
+    int e = jtag_apacc_wr(ap, MEMAP_TAR, addr);
+    if (e != JTAG_OK)
+      return e;
+  }
+  // perform the read using DAR[(addr&3ff)>>2]
+  int e = jtag_apacc_rd(ap, MEMAP_DAR0 | (addr & 0x3fc), data);
+  return e;
+}
+
+// issue a bus read, using the AP selected by jcfg.sys_ap
+// returns the status bits, writes the result to *data
+int jtag_bus_rd(uint32_t addr, uint32_t *data)
+{
+  return jtag_ap_rd(jcfg.sys_ap, addr, data);
+}
+
+// issue a batch of bus reads, using the AP selected by jcfg.sys_ap
+// returns the status bits of the last transaction (and aborts on
+// this first one that failed), writes the result to *data
+int jtag_bus_blockrd(uint32_t addr, unsigned n_words, uint32_t *data)
+{
+  while (n_words--) {
+    int e = jtag_ap_rd(jcfg.sys_ap, addr, data);
+    if (e != JTAG_OK)
+      return e;
+    addr += 4; data++;
+  }
+  return JTAG_OK;
+}
+
+// issue a bus read, using the AP selected by jcfg.sys_ap
+// returns the status bits, writes the result to *data
+int jtag_cpu_rd(uint32_t addr, uint32_t *data)
+{
+  return jtag_ap_rd(jcfg.cpu_ap, addr, data);
+}
+
+//=[ jtag_bus_wr() ]===========================================================
+//=[ jtag_cpu_wr() ]===========================================================
+
+// issue a bus write, using the AP selected by jcfg.sys_ap
+// returns the status bits
+static int jtag_ap_wr(int ap, uint32_t addr, uint32_t data)
+{
+  // program AP[jcfg.sys_ap].TAR if need be
+  if ((last.tar[ap] & ~0x3ff) != (addr & ~0x3ff)) {
+    // re-write TAR
+    int e = jtag_apacc_wr(ap, MEMAP_TAR, addr);
+    if (e != JTAG_OK)
+      return e;
+  }
+  // perform the read using DAR[(addr&3ff)>>2]
+  int e = jtag_apacc_wr(ap, MEMAP_DAR0 | (addr & 0x3fc), data);
+  return e;
+}
+
+// issue a bus read, using the AP selected by jcfg.sys_ap
+// returns the status bits, writes the result to *data
+int jtag_bus_wr(uint32_t addr, uint32_t data)
+{
+  return jtag_ap_wr(jcfg.sys_ap, addr, data);
+}
+
+// issue a batch of bus writes, using the AP selected by jcfg.sys_ap
+// returns the status bits of the last transaction (and aborts on
+// this first one that failed)
+int jtag_bus_blockwr(uint32_t addr, unsigned n_words, const uint32_t *data)
+{
+  while (n_words--) {
+    int e = jtag_ap_wr(jcfg.sys_ap, addr, *data);
+    if (e != JTAG_OK)
+      return e;
+    addr += 4; data++;
+  }
+  return JTAG_OK;
+}
+
+// issue a bus read, using the AP selected by jcfg.sys_ap
+// returns the status bits, writes the result to *data
+int jtag_cpu_wr(uint32_t addr, uint32_t data)
+{
+  return jtag_ap_wr(jcfg.cpu_ap, addr, data);
+}
