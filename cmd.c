@@ -361,11 +361,13 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // grab the address, 11-bits, rshifted by 2: (0..0x1ffc)>>2
       m = (GET_HWORD_AT(cmdbuf+cmdpos+2) & 0x7ff) << 2;
       // grab the data
+      {
       uint32_t p = GET_WORD_AT(cmdbuf+cmdpos+4);
       cmd_printf(" %c# @%u APACC_WR%s @%u:0x%04X 0x%08X\n", buf, cmdpos,
                  (n >> 7)?"\'":"", n & 0x7f, m, p );
       // do the write
       n = jtag_apacc_wr(n, m, p);
+      }
       // prepare the response
       respbuf[resppos] = n;
       cmd_printf("\t> (%X)\n", n);
@@ -460,13 +462,77 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmdpos += 7;
       break;
 
-#   if 0
-      // - bus (SYS) block accesses
+    // bus (SYS) block accesses
     case XCMD_BLOCK_RD:
-    case XCMD_BLOCK_WR:
-    case XCMD_BLOCK_FILL:
+      // grab the address and count
+      m = 1 + cmdbuf[cmdpos+1];
+      n = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
+      cmd_printf(" %c# @%u BLOCK_RD 0x%08X %u\n", buf, cmdpos, n, m);
+      {
+      // perform the reads; bail out on the first error
+      int p;
+      while (m--) {
+        uint32_t q;
+        p = jtag_bus_rd(n, &q);
+        if (p == 0b100)
+          SET_WORD_AT(respbuf+resppos, q);
+        else {
+          respbuf[resppos++] = p;
+          break;
+        }
+        n += 4; resppos += 4;
+      }
+      // print the number of read left, the last address we reached, and the most recent response
+      cmd_printf("\t> %d 0x%08X (%X)\n", m, n, p);
+      }
+      cmdpos += 6;
       break;
-#   endif
+    case XCMD_BLOCK_WR:
+      // grab the address and count
+      m = 1 + cmdbuf[cmdpos+1];
+      n = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
+      {
+      cmd_printf(" %c# @%u BLOCK_WR 0x%08X %u\n", buf, cmdpos, n, m);
+      // perform the writes; bail out on the first error
+      uint32_t p = cmdpos + 6, q;
+      while (m--) {
+        q = jtag_bus_wr(n, GET_WORD_AT(cmdbuf+p));
+        if (q != 0b100)
+          break;
+        n += 4; p += 4;
+      }
+      // send back the number of writes not completed, and the most recent response
+      respbuf[resppos++] = m;
+      respbuf[resppos++] = q;
+      // print the number of writes left, the last address we reached, and the most recent response
+      cmd_printf("\t> %d 0x%08X (%X)\n", m, n, q);
+      }
+      // skip the reminder of the command regardless of the number of locations actually written
+      cmdpos += 10 + 4*cmdbuf[cmdpos+1];
+      break;
+    case XCMD_BLOCK_FILL:
+      // grab the address, count and value
+      m = 1 + cmdbuf[cmdpos+1];
+      n = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
+      {
+      uint32_t p = GET_WORD_AT(cmdbuf+cmdpos+6), q;
+      cmd_printf(" %c# @%u FILL_WR 0x%08X %u 0x%08X\n", buf, cmdpos, n, m, p);
+      // perform the writes; bail out on the first error
+      while (m--) {
+        q = jtag_bus_wr(n, p);
+        if (q != 0b100)
+          break;
+        n += 4;
+      }
+      // send back the number of writes not completed, and the most recent response
+      respbuf[resppos++] = m;
+      respbuf[resppos++] = q;
+      // print the number of writes left, the last address we reached, and the most recent response
+      cmd_printf("\t> %d 0x%08X (%X)\n", m, n, q);
+      }
+      cmdpos += 10;
+      break;
+
     case CMD_ADC_GETREGS:
       cmd_printf(" %c# @%u ADC_GETREGS\n", buf, cmdpos);
       if (adc_spi_speed) {
@@ -567,19 +633,21 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       printf("IOX: nothing changed (TILESEL=%u, CLKSRC=%u)\n", 
         (crt.pin & TILESEL_MASK) >> TILESEL_POS, (crt.pin & CLKSRC_MASK) >> CLKSRC_POS);
   }
-  // protocol forbids responses that are a multiple of 64 bytes, so if that was the case, add one extra byte
-  // there is one obvious exception, the null response
-  if (resppos && ! (resppos & 63)) {
-    cmd_printf(" %c# resp_sz=0x%X; padding\n", buf, resppos);
-    respbuf[resppos++] = 0xA5;
-  }
+  cmd_printf("    [%u(%u) > 0x%X]", cmdpos, cmdsz, resppos);
   if (resppos) {
-    cmd_printf(" %c# [", buf);
-    for (int i = 0; i < resppos; ++i ) {
-      cmd_printf(" %02X", respbuf[i]);
+    cmd_printf(" :" );
+    int i;
+    if (resppos < 8) {
+      for (i = 0; i < resppos; ++i )
+        cmd_printf(" %02X", respbuf[i]);
+    } else {
+      for (i = 0; i < 4; ++i )
+        cmd_printf(" %02X", respbuf[i]);
+      cmd_printf (" ...");
+      for (i = resppos - 4; i < resppos; ++i)
+        cmd_printf(" %02X", respbuf[i]);
     }
-    cmd_printf(" ]\n");
   }
-  cmd_printf(" %c# done, cmd_sz=%u(%u) resp_sz=0x%u\n", buf, cmdpos, cmdsz, resppos);
+  cmd_printf("\n");
   return resppos;
 }

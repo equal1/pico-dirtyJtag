@@ -267,6 +267,11 @@ usb_send_more:
   if (usbbuf.state != SENDING) {
     usbbuf.resp_pos = 0;
     usbbuf.state = SENDING;
+    // add an extra 0xA5 to the buffer, if its size is a multiple of the endpoint size
+    if (! (usbbuf.resp_n & 0x3f)) {
+      usbbuf.resp[usbbuf.resp_n] = 0xA5;
+      usbbuf.resp_n++;
+    }
   }
   unsigned n0 = usbbuf.resp_n - usbbuf.resp_pos;
   unsigned n = n0;

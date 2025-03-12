@@ -239,16 +239,16 @@ struct djtag_cfg_s {
 //   would make little sense on the CPU AP
 // - reads specify a single byte, containing the number of words to read
 //   *minus 1*, followed by the 4-byte, LE-encoded start address, and return
-//   either a single byte with a failure response code, or 4*n bytes with the
-//   read results
+//   4*n bytes with the read results; if a failure is encountered, a single
+//   byte with the status bits is added to the response
 // - writes specify a single byte, containing the number of words to write
 //   *minus 1*, followed by a 4-byte, LE-encoded start address, and 4*n bytes
-//   containing the values to write; they always return a single byte,
-//   containing the failure response code (even if it is "OK", 3'b100)
+//   containing the values to write; they return 2 bytes, the number of
+//   locations NOT written, followed by the most recent status bits
 // - fills specify a single byte, containing the number of words to write
 //   *minus 1*, followed by a 4-byte, LE-encoded start address, and 4 bytes
-//   containing the value to write; they always return a single byte,
-//   containing the failure response code (even if it is "OK", 3'b100)
+//   containing the value to write; they return 2 bytes, the number of
+//   locations NOT written, followed by the most recent status bits
 // - commands: XCMD_BLOCK_RD, XCMD_BLOCK_WR, XCMD_BLOCK_FILL
 #define CAP_BURST   0x00000100
 
@@ -315,7 +315,7 @@ int jtag_cpu_wr(uint32_t addr, uint32_t data);
   CAP_CONFIG | \
   CAP_SCAN | \
   CAP_ABORT | CAP_DPACC | CAP_APACC | \
-  CAP_BUSACC | \
+  CAP_BUSACC | CAP_BURST | \
   0)
 
 // CAP_SCAN: IRSCAN, DRSCAN implemented
