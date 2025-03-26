@@ -1,8 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
-#include <pico/bootrom.h>
 #include <pico/stdlib.h>
-#include <pico/binary_info.h>
 #include <pico/multicore.h>
 #include <pico/unique_id.h>
 #include <hardware/pio.h>
@@ -43,15 +41,6 @@ static char whoami[512];
 const char *djtag_whoami()
 {
   return whoami;
-}
-
-static void fatal_error()
-{
-  printf("Rebooting to bootloader...\n");
-  // this is fatal - wait 100ms then reboot to bootloader
-  sleep_ms(100);
-  reset_usb_boot(0, 0);
-  while (1) asm volatile ("wfe");
 }
 
 void djtag_init()

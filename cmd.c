@@ -27,12 +27,11 @@
 
 #include <pico/stdlib.h>
 #include <pico/binary_info.h>
-#include <pico/bootrom.h>
 #include <hardware/clocks.h>
-#include <hardware/watchdog.h>
 #include <tusb.h>
 
 #include "a5pins.h"
+#include "arm.h"
 #include "config.h"
 #include "pio_jtag.h"
 #include "jtag.pio.h"
@@ -42,24 +41,6 @@
 
 //#define cmd_printf(...) printf(__VA_ARGS__)
 #define cmd_printf(...) (void)(__VA_ARGS__)
-
-#define GET_HWORD_AT(ptr) \
-  (((uint32_t)((ptr)[0])) | \
-   ((uint32_t)((ptr)[1]) << 8))
-#define GET_WORD_AT(ptr) \
-  (((uint32_t)((ptr)[0])) | \
-   ((uint32_t)((ptr)[1]) << 8) | \
-   ((uint32_t)((ptr)[2]) << 16) | \
-   ((uint32_t)((ptr)[3]) << 24))
-
-#define SET_HWORD_AT(ptr,data) \
-   ((ptr)[0] = data & 0xFF, \
-    (ptr)[1] = data >> 8)
-#define SET_WORD_AT(ptr,data) \
-   ((ptr)[0] = data & 0xFF, \
-    (ptr)[1] = data >> 8, \
-    (ptr)[2] = data >> 16, \
-    (ptr)[3] = data >> 24)
 
 unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
@@ -84,18 +65,13 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
     case CMD_GOTOBOOTLOADER:
       cmd_printf(" %c# @%u CMD_BOOTLOADER\n", buf, cmdpos);
       puts("Rebooting to bootloader...");
-      sleep_ms(200);
-      reset_usb_boot(0, 0);
-      while (1)
-        asm volatile ("wfe");
+      fatal_error();
       break;
 
     case CMD_REBOOT:
       cmd_printf(" %c# @%u CMD_REBOOT\n", buf, cmdpos);
       puts("Rebooting...");
-      watchdog_reboot(0, 0, 200); // standard boot in 0.2s
-      while (1)
-        asm volatile ("wfe");
+      bad_error();
       break;
 
 #   if 0
@@ -186,9 +162,9 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       break;
 
     case CMD_SETSIG:
-      cmd_printf(" %c# @%u CMD_SETSIG\n", buf, cmdpos);
       n = cmdbuf[cmdpos+1]; // mask
       m = cmdbuf[cmdpos+2]; // status
+      cmd_printf(" %c# @%u CMD_SETSIG %02X %02X\n", buf, cmdpos, n, m);
       if (n & SIG_TCK)
         jtag_set_clk(jtag, m & SIG_TCK);
       if (n & SIG_TDI)
@@ -533,6 +509,74 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmdpos += 10;
       break;
 
+    case XCMD_ARM_INIT: {
+      // void arm_init(
+      //   uint32_t imc_write, unsigned sz_imc_write,
+      //   uint32_t reset_addr, unsigned dbg_bit, unsigned m0_bit);
+        uint32_t imcwrite_addr = GET_WORD_AT(cmdbuf+cmdpos+1) & ~1;
+        uint16_t imcwrite_sz = GET_WORD_AT(cmdbuf+cmdpos+5) & ~1;
+        uint32_t reset_addr = GET_WORD_AT(cmdbuf+cmdpos+7) & ~3;
+        uint8_t rst_dbg_bit = cmdbuf[cmdpos+11];
+        uint8_t rst_m0_bit = cmdbuf[cmdpos+12];
+        cmd_printf(" %c# @%u ARM_INIT imc_write=0x%04X..%04X, rst_addr=0x%X m0=%u m0dbg=%u\n", 
+          buf, cmdpos,
+          imcwrite_addr, imcwrite_addr + imcwrite_sz - 1, 
+          reset_addr, rst_dbg_bit, rst_m0_bit);
+        arm_init(imcwrite_addr, imcwrite_sz, 
+                 reset_addr, rst_dbg_bit, rst_m0_bit);
+        cmdpos += 13;
+        }
+      break;
+    case XCMD_ARM_RESUME:
+      // int arm_resume(void);
+      // returns: 0=already_running, 1=resumed, 2=locked_up, <0=error
+      cmd_printf(" %c# @%u ARM_RESUME\n", buf, cmdpos);
+      n = arm_resume();
+      cmd_printf("\t> %d\n", n);
+      cmdpos++;
+      respbuf[resppos++] = n;
+      break;
+    case XCMD_ARM_QUERY:
+      // int get_arm_state(uint8_t *resp)
+      // function returns the number of output bytes
+      // {
+      //   reg_sz, imc_sz : uint16_t;
+      //   regs : {
+      //     uint32_t dhcsr;
+      //     // if not running (sleeping/lockup/halted/exception)
+      //     uint32_t pc;
+      //     // if not running/sleeping (lockup/halted/exception)
+      //     uint32_t systick, dfsr, icsr;
+      //     uint32_t r[14], psr, ctrl_primask;
+      //     // if an exception happened
+      //     uint32_t except_r0[4], except_r12[4], psr;
+      //   }
+      //   imc : char[imc_sz];
+      // }
+      cmd_printf(" %c# @%u ARM_QUERY\n", buf, cmdpos);
+      while (resppos & 3)
+        respbuf[resppos++] = 0xcd;
+      n = get_arm_state(respbuf + resppos, 0);
+      m = *(uint16_t*)(respbuf + resppos);
+      cmd_printf("\t> %d (%d+%d)", n, m, *(uint16_t*)(respbuf + resppos + 2));
+      if (m >= 4) {
+        uint32_t dhcsr = *(uint32_t*)(respbuf + resppos + 4);
+        const char *state = "running";
+        if (dhcsr & DHCSR_S_SLEEP)
+          state = "asleep";
+        else if (dhcsr & DHCSR_S_LOCKUP)
+          state = "lockup";
+        else if (dhcsr & DHCSR_S_HALT)
+          state = "halted";
+        cmd_printf(" %s", state);
+        if (m >= 8)
+          cmd_printf(" pc=0x%04X", *(uint32_t*)(respbuf + resppos + 8));
+      }
+      cmd_printf("\n");
+      cmdpos++;
+      resppos += n;
+      break;
+
     case CMD_ADC_GETREGS:
       cmd_printf(" %c# @%u ADC_GETREGS\n", buf, cmdpos);
       if (adc_spi_speed) {
@@ -609,9 +653,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // invalid command: reboot
       // also: print the entire command byte, not just cmd[6:0]
       printf(" %c# @%u ??? 0x%02X\n", buf, cmdpos, cmdbuf[cmdpos]);
-      watchdog_reboot(0, 0, 100); // standard boot in 100ms (give time to UART to flush)
-      while (1)
-        asm volatile ("wfe");
+      fatal_error();
       break;
     }
   }
@@ -637,7 +679,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
   if (resppos) {
     cmd_printf(" :" );
     int i;
-    if (resppos < 8) {
+    if (resppos <= 8) {
       for (i = 0; i < resppos; ++i )
         cmd_printf(" %02X", respbuf[i]);
     } else {

@@ -5,6 +5,26 @@
 
 //#define SPI_PARANOIA
 
+// helpers for accessing data in a byte buffer
+
+#define GET_HWORD_AT(ptr) \
+  (((uint32_t)((ptr)[0])) | \
+   ((uint32_t)((ptr)[1]) << 8))
+#define GET_WORD_AT(ptr) \
+  (((uint32_t)((ptr)[0])) | \
+   ((uint32_t)((ptr)[1]) << 8) | \
+   ((uint32_t)((ptr)[2]) << 16) | \
+   ((uint32_t)((ptr)[3]) << 24))
+
+#define SET_HWORD_AT(ptr,data) \
+   ((ptr)[0] = data & 0xFF, \
+    (ptr)[1] = data >> 8)
+#define SET_WORD_AT(ptr,data) \
+   ((ptr)[0] = data & 0xFF, \
+    (ptr)[1] = data >> 8, \
+    (ptr)[2] = data >> 16, \
+    (ptr)[3] = data >> 24)
+
 //=[ LED stuff ]==============================================================
 
 enum led_type_e {
@@ -56,3 +76,10 @@ extern char *ipconfig_ptr;
 // if link==-1, srvip is the error message
 // if link==0|1, srvip is the IP address, or NULL if in the DHCP phase
 void notify_ip_config(int link, const char *srvip, const char *cliip);
+
+// used by other things to reboot the pico
+__attribute__((noreturn))
+void bad_error();
+// used to reboot to bootloader
+__attribute__((noreturn))
+void fatal_error();

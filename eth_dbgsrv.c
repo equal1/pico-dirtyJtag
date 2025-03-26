@@ -187,10 +187,12 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
              "expected response: %ubytes, have: %ubytes%s...\n",
              svc->svcname, expected, actual,
              svc->is_tcp ? "; disconnecting client" : "");
+      // reboot if the protocol was badly violated
+      if ((expected > BUFFER_SIZE) || (actual > BUFFER_SIZE))
+        bad_error();
     close_and_exit:
-      // only actually close a TCP socket - for UDP, it makes no sense
-      if (svc->is_tcp)
-        close(sock);
+      // close the socket, even if UDP (force a reconnect on next iteration)
+      close(sock);
       return;
     }
     if (actual != svc->out.buf.response_size + 4) {
@@ -286,6 +288,9 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
               (svc->in.buf.response_size < 0)? "<=" : "",
                svc->in.buf.response_size & ~0x80000000,
               svc->is_tcp ? "; disconnecting client" : "");
+      // reboot if the protocol was badly violated
+      if ((svc->in.buf.payload_size > BUFFER_SIZE) || ((svc->in.buf.response_size & ~0x80000000) > BUFFER_SIZE))
+        bad_error();
       goto close_and_exit;
     }
     dprintf("%s: received packet, payload size=%u; "

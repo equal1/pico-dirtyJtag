@@ -1,17 +1,20 @@
 #include <stdint.h>
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
+
 #include "config.h"
+#include "arm.h"
 #include "cmd.h"
 #include "pio_jtag.h"
+#include "utils.h"
 
 //#define DEBUG // print what the commands are doing
 //#define DEBUG_SCAN // print what's happening while scanning the chains
 
 #ifdef DEBUG
-#define dprintf(...) printf(__VA_ARGS__)
+#define dprintf(...) (printf(__VA_ARGS__))
 #ifdef DEBUG_SCAN
-#define ddprintf(...) printf(__VA_ARGS__)
+#define ddprintf(...) (printf(__VA_ARGS__))
 #else
 #define ddprintf(...) ((void)((__VA_ARGS__)))
 #endif
@@ -32,14 +35,6 @@ static struct djtag_cfg_s jcfg = {
   .cpu_ap = 0, // these get set via XCMD_CONFIG,
   .sys_ap = 0  // or whenever PINCFG changes the value of TILESEL
 };
-
-// ARM's DPACC/APACC commands
-#define IR_ABORT  0x8 // 4'b1000
-#define IR_DPACC  0xA // 4'b1010
-#define IR_APACC  0xB // 4'b1011
-#define IR_IDCODE 0xE // 4'b1110 // not used, we reply on TLR instead
-#define IR_BYPASS 0xF // 4'b1111
-#define N_AP 9 // ROM + 4x{CPU,SYS}
 
 // most recent known state
 static struct {
@@ -282,7 +277,11 @@ unsigned jtag_do_scan(int ir, unsigned n_bits, const void *out_, void *in)
   return res;
 }
 
-//-[ jtag_do_bypass() ]--------------------------------------------------------
+/*****************************************************************************
+ *****************************************************************************
+ *****************************************************************************/
+
+//=[ jtag_do_bypass() ]========================================================
 
 // count devices in the JTAG chain, using the BYPASS method
 //   returns 0 for no devices, FF for chain disconnected, or the
@@ -374,20 +373,11 @@ unsigned jtag_set_config(const void *cfg)
   return sizeof(jcfg);
 }
 
+/*****************************************************************************
+ *****************************************************************************
+ *****************************************************************************/
+
 //=[ jtag_abort() ]=========================================================
-
-// the ABORT and xPACC registers contain
-// { 32'b{data}, 2'b{addr[3:2]},1'b{R/W#} }
-#define MK_JTAG_READ(addr,val) ((((uint64_t)val)<<3)|((addr >> 1)&0x6)|1)
-#define MK_JTAG_WRITE(addr,val) ((((uint64_t)val)<<3)|((addr >> 1)&0x6))
-
-#define   ABORT_ORUNERRCLR (0x10) // clear CTRLSTAT.STICKYORUN
-//#define ABORT_WDERRCLR   (0x08) // clear CTRLSTAT.WDATAERR // SWD-only
-#define   ABORT_STKERRCLR  (0x04) // clear CTRLSTAT.STICKYERR
-#define   ABORT_STKCMPCLR  (0x02) // clear CTRLSTAT.STICKYCMP
-#define   ABORT_AP         (0x01) // abort the current AP transaction
-#define   ABORT_ALL        (0x17)
-
 
 // issue an ABORT command, with a command word having the specified argument
 // returns the status bits 
@@ -412,21 +402,6 @@ int jtag_abort(int arg)
 }
 
 //=[ jtag_dpacc_rd() ]=========================================================
-
-// DP registers ([7:4]bank [3:2]addr [1:0]=2'b00)
-#define DP_IDR        0x00 // RO
-#define DP_CTRLSTAT   0x04 // RW
-#define DP_SELECT     0x08 // WO // [31:4]=ADDR, [3:0]=DPBANKSEL
-#define DP_RDBUFF     0x0C // RO
-#define DP_IDR1       0x10 // RO
-#define DP_BASEPTR0   0x20 // RO
-#define DP_TARGETID   0x24 // RO
-#define DP_DLPIDR     0x34 // RO
-#define DP_EVENTSTAT  0x44 // RO
-
-#define JTAG_WAIT  0x1
-#define JTAG_FAULT 0x2
-#define JTAG_OK    0x4
 
 // issue a DPACC read
 // returns the status bits, stores the result to *data
@@ -506,23 +481,6 @@ int jtag_dpacc_wr(uint32_t addr, uint32_t data)
 }
 
 //=[ jtag_apacc_rd() ]=========================================================
-
-#define MEMAP_DAR0       0x000 // 256 Data Access Registers; access is relative to {TAR[31:10], 10'h0}
-#define MEMAP_DAR_TOP    0x400
-#define MEMAP_CSW        0xD00
-#define MEMAP_TAR        0xD04 // Target Address Register
-#define MEMAP_DRW        0xD0C // Data Read/Write; access at TAR; supports byte/halfword accesses (config in CSW)
-#define MEMAP_BD0        0xD10 // 4 Banked Data Registers; access is relative to {TAR[31:4], 3'h0}
-#define MEMAP_BD1        0xD14
-#define MEMAP_BD2        0xD18
-#define MEMAP_BD3        0xD1C
-#define MEMAP_MBT        0xD20 // Memory Barrier Transfer // probably not implemented
-#define MEMAP_TRR        0xD24 // Transfer Response
-#define MEMAP_T0TR       0xD30 // Tag 0 Transfer
-#define MEMAP_CFG1       0xDE0
-#define MEMAP_CFG        0xDF4 // Config; RO
-#define MEMAP_BASE       0xDF8 // Debug Base Address; RO
-#define MEMAP_ITSTATUS   0xEFC
 
 // issue an APACC read
 // returns the status bits, stores the result to *data
@@ -714,7 +672,7 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
 
 // issue a bus read, using the AP selected by jcfg.sys_ap
 // returns the status bits, writes the result to *data
-static int jtag_ap_rd(int ap, uint32_t addr, uint32_t *data)
+int jtag_ap_rd(int ap, uint32_t addr, uint32_t *data)
 {
   // program AP[jcfg.sys_ap].TAR if need be
   if ((last.tar[ap] & ~0x3ff) != (addr & ~0x3ff)) {

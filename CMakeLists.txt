@@ -32,16 +32,17 @@ pico_sdk_init()
 # Add executable. Default name is the project name, version 0.1
 add_executable(dirtyJtag
 		main.c
-		cmd.c
-		pio_jtag.c
-		jtagx.c
-		a5pins.c
-		adc.c
-		utils.c
 		usb.c
 		ethernet.c
 		eth_dbgsrv.c
 		eth_fwupd.c
+		cmd.c
+		pio_jtag.c
+		a5pins.c
+		adc.c
+		utils.c
+		jtagx.c
+		armx.c
 )
 target_include_directories(dirtyJtag PUBLIC 
 		${CMAKE_CURRENT_SOURCE_DIR}

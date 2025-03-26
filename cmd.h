@@ -70,7 +70,7 @@ enum CommandIdentifier {
   CMD_ADC_CHREAD_SCAN = 0x12, // DirtyJTAG extension: do a read on any channels combination using SCAN mode
   CMD_ADC_SETREG = 0x13, // DirtyJTAG extension: set a single ADC register
   CMD_ADC_SAMPLE = 0x14, // DirtyJTAG extension: kick off a single conversion and return result
-  // equal1 accelerated commands
+  // equal1 JTAG accelerated commands
   // - general purpose
   XCMD_BYPASS_COUNT = 0x15,
   XCMD_GET_IDCODES = 0x16,
@@ -93,7 +93,11 @@ enum CommandIdentifier {
   // - bus (SYS) block accesses
   XCMD_BLOCK_RD   = 0x24,
   XCMD_BLOCK_WR   = 0x25,
-  XCMD_BLOCK_FILL = 0x26
+  XCMD_BLOCK_FILL = 0x26,
+  // equal1 ARM/m0core accelerated commands
+  XCMD_ARM_INIT = 0x27,
+  XCMD_ARM_RESUME = 0x28,
+  XCMD_ARM_QUERY = 0x29,
 };
 
 enum CommandModifier
@@ -252,6 +256,9 @@ struct djtag_cfg_s {
 // - commands: XCMD_BLOCK_RD, XCMD_BLOCK_WR, XCMD_BLOCK_FILL
 #define CAP_BURST   0x00000100
 
+// ARM state tracking
+#define CAP_ARM   0x00000200
+
 //=[ jtagx api ]===============================================================
 
 // set default CPU/SYS APs based on what TILESEL points 
@@ -310,12 +317,28 @@ int jtag_cpu_wr(uint32_t addr, uint32_t data);
 // APACC_{RD|WR} addtionally use config.armcmd_xcycles
 // {BUS|CPU}_{RD|WR} and CPU_WRRD additionally use config.{sys_ap|cpu_ap}
 
+//=[ armx api ]================================================================
+
+// arm subsystem init; provide the imc_write function, and the reset config
+// bit 0 of reset_addr indicates whether resets are active-high (0) or
+// active-low (1)
+// this function, besides initializing the state tracking, resets the m0
+void arm_init(
+  uint32_t imc_write, unsigned sz_imc_write,
+  uint32_t reset_addr, unsigned dbg_bit, unsigned m0_bit);
+
+// resume arm execution; if needed, this also removes the m0 reset
+int arm_resume(void);
+
+int get_arm_state(uint8_t *resp, int force_all);
+
 #define IMPLEMENTED_CAPS ( \
   CAP_BYPASS_COUNT | CAP_GET_IDCODES | \
   CAP_CONFIG | \
   CAP_SCAN | \
   CAP_ABORT | CAP_DPACC | CAP_APACC | \
   CAP_BUSACC | CAP_BURST | \
+  CAP_ARM | \
   0)
 
 // CAP_SCAN: IRSCAN, DRSCAN implemented

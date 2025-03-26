@@ -1,9 +1,12 @@
 #include <stdio.h>
 #include <pico/stdlib.h>
 #include <pico/binary_info.h>
+#include <pico/bootrom.h>
 #include <hardware/gpio.h>
 #include <hardware/spi.h>
 #include <hardware/clocks.h>
+#include <hardware/watchdog.h>
+#include <bsp/board.h>
 #include "utils.h"
 #include "config.h"
 #include "ethernet.h"
@@ -162,3 +165,19 @@ int detect_max_spi_speed(spi_inst_t *device, spi_speed_detect_fn_t detector,
   } while (speed >= 1000000);
   return 0;
 }
+
+void bad_error()
+{
+  watchdog_reboot(0, 0, 200); // standard boot in 0.2s
+  while (1)
+    asm volatile ("wfe");
+}
+
+void fatal_error()
+{
+  // this is fatal - wait 200ms then reboot to bootloader
+  sleep_ms(200);
+  reset_usb_boot(0, 0);
+  while (1) asm volatile ("wfe");
+}
+
