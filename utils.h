@@ -25,6 +25,15 @@
     (ptr)[2] = data >> 16, \
     (ptr)[3] = data >> 24)
 
+// more helpers
+#ifndef offsetof
+# define offsetof(s,f) ((unsigned)&((*(s*)0).(f)))
+#endif
+#ifndef countof
+# define countof(a) (sizeof(a)/sizeof(a[0]))
+#endif
+
+
 //=[ LED stuff ]==============================================================
 
 enum led_type_e {
@@ -76,6 +85,11 @@ extern char *ipconfig_ptr;
 // if link==-1, srvip is the error message
 // if link==0|1, srvip is the IP address, or NULL if in the DHCP phase
 void notify_ip_config(int link, const char *srvip, const char *cliip);
+
+//=[ reboot/bootloader logic ]=================================================
+
+// free up the memory reserved by the arm IMC console tracking
+void free_console_buffers();
 
 // used by other things to reboot the pico
 __attribute__((noreturn))

@@ -29,6 +29,7 @@
 # define MTU_SIZE 1500
 // round up the buffer size to the next multiple of 64 bytes
 # define BUFFER_SIZE ((MTU_SIZE + 63) & ~63)
+# define MAX_RESP_SIZE ((MTU_SIZE - 8)& ~63)
 #else
 # define BUFFER_SIZE 2048
 #endif

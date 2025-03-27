@@ -330,7 +330,7 @@ void arm_init(
 // resume arm execution; if needed, this also removes the m0 reset
 int arm_resume(void);
 
-int get_arm_state(uint8_t *resp, int force_all);
+int get_arm_state(uint8_t *resp);
 
 #define IMPLEMENTED_CAPS ( \
   CAP_BYPASS_COUNT | CAP_GET_IDCODES | \

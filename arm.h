@@ -187,7 +187,3 @@ struct vectors_s {
   uint32_t fn_systick;      // [15]
   uint32_t fn_irq[32];      // [16..47]
 };
-
-#ifndef offsetof
-# define offsetof(s,f) ((unsigned)&((*(s*)0).(f)))
-#endif

@@ -384,8 +384,12 @@ void fwupd_process(int sock, int sstate, struct dbgsvc_s *svc)
           unsigned alloc_size = 256 * fwupd.in_uf2.num_blocks;
           printf ("fwupd: allocating a %ubytes firmware buffer\n", alloc_size);
           if (! (fw.buf = (uint8_t*)malloc(alloc_size))) {
-            err = tftp_error(TFTP_ERR_GENERIC, "not enough memory");
-            break;
+            // try again, after sacrificing the ARM IMC console buffers
+            free_console_buffers();
+            if (! (fw.buf = (uint8_t*)malloc(alloc_size))) {
+              err = tftp_error(TFTP_ERR_GENERIC, "not enough memory");
+              break;
+            }
           }
           // reset the rest of the state
           fw.size = 0; fw.got_blocks = 0;
@@ -527,6 +531,8 @@ int tftp_error(int code, const char *msg)
 // shameless adaptation of the code in the Pico SDK, except it does the erasing,
 // programming, and rebooting back-to-back; also it doesn't bother with keeping
 // the system functional after the flashing
+// had to do it this way, since there was no easy way of keeping all the fns we
+// needed in RAM/ROM
 void do_flash_board(void *unused)
 {
   (void)unused;

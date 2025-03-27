@@ -556,7 +556,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmd_printf(" %c# @%u ARM_QUERY\n", buf, cmdpos);
       while (resppos & 3)
         respbuf[resppos++] = 0xcd;
-      n = get_arm_state(respbuf + resppos, 0);
+      n = get_arm_state(respbuf + resppos);
       m = *(uint16_t*)(respbuf + resppos);
       cmd_printf("\t> %d (%d+%d)", n, m, *(uint16_t*)(respbuf + resppos + 2));
       if (m >= 4) {
