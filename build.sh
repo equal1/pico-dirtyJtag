@@ -1,6 +1,8 @@
 #! /bin/bash
 pushd $(dirname $0) 2>&1 >/dev/null
+SRCDIR=$(pwd)
 SELF=$(basename $(pwd))
+echo srcdir=$SRCDIR
 # figure out as suitable PICO SDK
 SEARCH_PATH="$PICO_SDK_PATH \
   /opt/pico-sdk-2.1.0 ~/pico-sdk-2.1.0 \
@@ -59,15 +61,16 @@ else
   echo [ building for pico ]
   echo
   mkdir -p bin
-  rm -rf ../${SELF}-build-pico
-  mkdir -p ../${SELF}-build-pico
-  cd ../${SELF}-build-pico 
-  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico -DPICO_PLATFORM=rp2040 -DPICO_GCC_TRIPLE=$M0_PREFIX ../$SELF
+  rm -rf /tmp/${SELF}-build-pico
+  mkdir -p /tmp/${SELF}-build-pico
+  pushd /tmp/${SELF}-build-pico 
+  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico -DPICO_PLATFORM=rp2040 -DPICO_GCC_TRIPLE=$M0_PREFIX $SRCDIR
   make -j && \
-    cp -v dirtyJtag.uf2 ../${SELF}/bin/dirtyJtag-pico.uf2 && \
-    cp -v dirtyJtag.elf ../${SELF}/bin/dirtyJtag-pico.elf && chmod a-x ../${SELF}/bin/dirtyJtag-pico.elf && \
-    ${M0_PREFIX}-readelf -a dirtyJtag.elf | tail -12 > ../${SELF}/bin/dirtyJtag-pico.abi
-  cd ../${SELF}
+    cp -v dirtyJtag.uf2 $SRCDIR/bin/dirtyJtag-pico.uf2 && \
+    cp -v dirtyJtag.elf $SRCDIR/bin/dirtyJtag-pico.elf && chmod a-x $SRCDIR/bin/dirtyJtag-pico.elf && \
+    cp -v git.c $SRCDIR/bin && \
+    ${M0_PREFIX}-readelf -a dirtyJtag.elf | tail -12 > $SRCDIR/bin/dirtyJtag-pico.abi
+  popd
   echo
 fi
 
@@ -76,15 +79,16 @@ if [ -z $M33_PREFIX ]; then
 else
   echo [ building for pico2 ]
   echo
-  rm -rf ../${SELF}-build-pico2
-  mkdir -p ../${SELF}-build-pico2
-  cd ../${SELF}-build-pico2
-  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico2 -DPICO_PLATFORM=rp2350-arm-s -DPICO_GCC_TRIPLE=$M33_PREFIX ../$SELF
+  rm -rf /tmp/${SELF}-build-pico2
+  mkdir -p /tmp/${SELF}-build-pico2
+  pushd /tmp/${SELF}-build-pico2
+  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico2 -DPICO_PLATFORM=rp2350-arm-s -DPICO_GCC_TRIPLE=$M33_PREFIX $SRCDIR
   make -j && \
-    cp -v dirtyJtag.uf2 ../${SELF}/bin/dirtyJtag-pico2.uf2 && \
-    cp -v dirtyJtag.elf ../${SELF}/bin/dirtyJtag-pico2.elf && chmod a-x ../${SELF}/bin/dirtyJtag-pico2.elf && \
-    ${M33_PREFIX}-readelf -a dirtyJtag.elf | tail -16 > ../${SELF}/bin/dirtyJtag-pico2.abi
-  cd ../${SELF}
+    cp -v dirtyJtag.uf2 $SRCDIR/bin/dirtyJtag-pico2.uf2 && \
+    cp -v dirtyJtag.elf $SRCDIR/bin/dirtyJtag-pico2.elf && chmod a-x $SRCDIR/bin/dirtyJtag-pico2.elf && \
+    cp -v git.c $SRCDIR/bin && \
+    ${M33_PREFIX}-readelf -a dirtyJtag.elf | tail -16 > $SRCDIR/bin/dirtyJtag-pico2.abi
+  popd
   echo
 fi
 popd
