@@ -607,7 +607,7 @@ void arm_init(
   // enable DEBUGEN/C_HALT in DHCSR, so we could program DEMCR
   set_dhcsr(DHCSR_C_HALT);
   // set the core to halt on leaving RESET
-  set_demcr(DEMCR_VC_CORERST /*| DEMCR_VC_HARDERR*/);
+  set_demcr(DEMCR_VC_CORERST | DEMCR_VC_HARDERR);
 }
 
 int arm_resume(void)

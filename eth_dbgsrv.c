@@ -187,6 +187,7 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
              "expected response: %ubytes, have: %ubytes%s...\n",
              svc->svcname, expected, actual,
              svc->is_tcp ? "; disconnecting client" : "");
+      printf("Most recent command:\n%s", last_cmd());
       // reboot if the protocol was badly violated
       if ((expected > BUFFER_SIZE) || (actual > BUFFER_SIZE))
         bad_error();
@@ -212,8 +213,9 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
       // recent command
       transferred = sendto(sock, (uint8_t*)&svc->out.buf, actual, svc->cli_ip.byte, svc->cli_port);
     if (transferred != actual) {
-      printf("%s: send error%s...\n",
-             svc->svcname, svc->is_tcp ? "; disconnecting client" : "");
+      printf("%s: send error (wanted: %d; sent: %d)%s...\n",
+             svc->svcname, actual, transferred,
+             svc->is_tcp ? "; disconnecting client" : "");
       goto close_and_exit;
     }
     dprintf("%s: sent packet, payload size=%u\n",
@@ -253,10 +255,20 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
     int actual;
     // for UDP, we also get the IP and port of the sender
     uint32_t cli_ip; uint16_t cli_port;
-    if (svc->is_tcp)
-      actual = recv(sock, (uint8_t*)&svc->in.buf, expected);
-    else
-      actual = recvfrom(sock, (uint8_t*)&svc->in.buf, expected, (uint8_t*)&cli_ip, &cli_port);
+    // turns out, sometimes a single read is not enough
+    // so poll until there's no more data in the socket
+    uint8_t *dest = (uint8_t*)&svc->in.buf;
+    actual = 0;
+    unsigned avl_data = expected;
+    while(avl_data) {
+      if (svc->is_tcp)
+        actual += recv(sock, dest, avl_data);
+      else
+        actual += recvfrom(sock, dest, expected, (uint8_t*)&cli_ip, &cli_port);
+      dest += actual;
+      avl_data = getSn_RX_RSR(sock);
+      expected += avl_data;
+    }
     if (actual < 0) {
       printf("%s: receive error%s...\n",
              svc->svcname, svc->is_tcp ? "; disconnecting client" : "");
@@ -288,6 +300,8 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
               (svc->in.buf.response_size < 0)? "<=" : "",
                svc->in.buf.response_size & ~0x80000000,
               svc->is_tcp ? "; disconnecting client" : "");
+      printf("Most recent command:\n%s", last_cmd());
+      printf("There's %u bytes left in the socket\n", getSn_RX_RSR(sock));
       // reboot if the protocol was badly violated
       if ((svc->in.buf.payload_size > BUFFER_SIZE) || ((svc->in.buf.response_size & ~0x80000000) > BUFFER_SIZE))
         bad_error();

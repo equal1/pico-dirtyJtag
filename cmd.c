@@ -22,6 +22,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -39,8 +40,22 @@
 #include "utils.h"
 #include "cmd.h"
 
-//#define cmd_printf(...) printf(__VA_ARGS__)
-#define cmd_printf(...) (void)(__VA_ARGS__)
+//#define PRINT_ALL_CMDS
+
+static struct {
+  unsigned pos;
+  char cmd[252];
+} last_msg;
+
+static void cmd_printf(const char *msg, ...) {
+  va_list args;
+  va_start(args, msg);
+  last_msg.pos += vsprintf(last_msg.cmd + last_msg.pos, msg, args);
+}
+
+const char *last_cmd() {
+  return last_msg.cmd;
+}
 
 unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
@@ -49,6 +64,8 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
   struct pindesc_s pindesc; // pin description
   extern struct djtag_clk_s djtag_clocks;
   int n, m;
+  last_msg.pos = 0;
+  last_msg.cmd[0] = 0;
   //cmd_printf("buf=%c(%p) sz=%u\n", buf, cmdbuf, cmdsz);
   struct {
     uint32_t pin, cfg, pull;
@@ -484,7 +501,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmd_printf("\t> %d 0x%08X (%X)\n", m, n, q);
       }
       // skip the reminder of the command regardless of the number of locations actually written
-      cmdpos += 10 + 4*cmdbuf[cmdpos+1];
+      cmdpos += 6 + 4 + 4*cmdbuf[cmdpos+1];
       break;
     case XCMD_BLOCK_FILL:
       // grab the address, count and value
@@ -691,5 +708,9 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
     }
   }
   cmd_printf("\n");
+  // print what happened, if debugging
+# ifdef PRINT_ALL_CMDS
+  puts(last_msg.txt);
+# endif
   return resppos;
 }

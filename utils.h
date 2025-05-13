@@ -86,6 +86,10 @@ extern char *ipconfig_ptr;
 // if link==0|1, srvip is the IP address, or NULL if in the DHCP phase
 void notify_ip_config(int link, const char *srvip, const char *cliip);
 
+//=[ grab the last command ]==================================================
+
+const char *last_cmd();
+
 //=[ reboot/bootloader logic ]=================================================
 
 // free up the memory reserved by the arm IMC console tracking
