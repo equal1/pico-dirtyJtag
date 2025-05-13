@@ -559,8 +559,8 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       n = get_arm_state(respbuf + resppos);
       m = *(uint16_t*)(respbuf + resppos);
       cmd_printf("\t> %d (%d+%d)", n, m, *(uint16_t*)(respbuf + resppos + 2));
-      if (m >= 4) {
-        uint32_t dhcsr = *(uint32_t*)(respbuf + resppos + 4);
+      if (m >= 8) {
+        uint32_t dhcsr = *(uint32_t*)(respbuf + resppos + 8);
         const char *state = "running";
         if (dhcsr & DHCSR_S_SLEEP)
           state = "asleep";
@@ -569,8 +569,8 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
         else if (dhcsr & DHCSR_S_HALT)
           state = "halted";
         cmd_printf(" %s", state);
-        if (m >= 8)
-          cmd_printf(" pc=0x%04X", *(uint32_t*)(respbuf + resppos + 8));
+        if (m >= 12)
+          cmd_printf(" pc=0x%04X", *(uint32_t*)(respbuf + resppos + 12));
       }
       cmd_printf("\n");
       cmdpos++;

@@ -45,7 +45,7 @@ static struct {
     uint32_t pc;          // [+08] ARM.PC
     // locked/halted and crashed
     union {
-      uint32_t _r[22];
+      uint32_t _r[21];
       struct {
         uint32_t r[13];   // [+0C..3C]: ARM.r[0..12]
         uint32_t sp;      // [+40] ARM.sp (r13)
@@ -84,6 +84,9 @@ static struct {
     uint32_t last_rdpos;
     // work buffer
     char *buf; // copy of the relevant bits of the on-chip buffer
+    // flag saying that we don't really have an IMC
+    // (gets set if VTOR was set, but the pointer is null)
+    int no_imc;
   } imc;
   struct {
     int halted_by_us;
@@ -280,6 +283,16 @@ static uint32_t set_icsr(uint32_t x)
 static uint32_t set_imc_rdpos(uint32_t x)
 { return set_ahb_reg(state.imc.ptr_rdpos, x | 0x10000, "IMC.RDPOS"); }
   
+static void update_systick()
+{
+  // take this opportunity to read SYSTICK
+  uint32_t systick = get_systick();
+  if (systick != UNKNOWN) {
+    state.arm.last_systick = state.arm.systick;
+    state.arm.systick = systick;
+  }
+}
+
 static const char *armregnames[] = {
   "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
   "r8", "r9", "r10", "r11", "r12", "sp", "lr", "pc",
@@ -302,36 +315,40 @@ static const char *armexnames[] = {
 static int arm_update()
 {
   //---------------------------------------------------------------------------
-  // read SYSTICK first
-  uint32_t systick = get_systick();
-  if (systick != UNKNOWN) {
-    state.arm.last_systick = state.arm.systick;
-    state.arm.systick = systick;
-  }
-  // then get DHCSR
+  // read DHCSR first
   uint32_t dhcsr = get_dhcsr();
   if (dhcsr == UNKNOWN)
     return -1;
   state.arm.dhcsr = dhcsr;
-  // if core debug isn't enabled, enable it first!
-  if (! (dhcsr & DHCSR_DEBUGEN )) {
-    dprintf("enabling DHCSR.DEBUGEN\n");
-    set_dhcsr(dhcsr);
-    dhcsr |= DHCSR_DEBUGEN;
-  }
+  // if the core isn't sleeping, read SYSTICK
+  if (! (dhcsr & DHCSR_S_SLEEP))
+    update_systick();
+
   state.cfg.halted_by_us = 0;
   //---------------------------------------------------------------------------
   // if we haven't initialized the IMC yet, do so
-  if (! state.imc.ptr_buf) {
+  if (! state.imc.ptr_buf && ! state.imc.no_imc) {
     // if we're really early, wait for the initial system configuration to
     // complete (the cue is that the ARM vector table address is no longer 0)
+    // however, it seems VTOR can't be read while the ARM is sleeping, so halt it first
+    if ((dhcsr & DHCSR_S_SLEEP)) {
+      if (set_dhcsr(dhcsr | DHCSR_C_HALT))
+        return -3;
+      update_systick();
+      dhcsr |= DHCSR_C_HALT | DHCSR_S_HALT;
+      state.cfg.halted_by_us = 1;
+    }
     uint32_t vtor = get_vtor();
-    if (vtor == UNKNOWN)
+    if (vtor == UNKNOWN) {
+      printf ("cannot read VTOR!\n");
       goto check_arm_state;
+    }
     state.arm.vtor = vtor;
     // if VTOR wasn't set up yet, try again next time
-    if (! vtor)
+    if (! vtor) {
+      dprintf ("VTOR hasn't been set yet!\n");
       goto check_arm_state;
+    }
     // read the IMC buffer pointer and size
     uint32_t imc_addr = vtor + offsetof(struct vectors_s, imc_tx);
     uint32_t buf_ptr, buf_sz;
@@ -340,6 +357,14 @@ static int arm_update()
     buf_sz = get_ahb_reg(imc_addr + offsetof(struct imc_s, buf_size), "IMC.BUF_SIZE");
     if ((buf_ptr == UNKNOWN_DATA) || (buf_sz == UNKNOWN_DATA))
       return -2;
+    // detect if we don't really have an IMC - very unlikely, but we don't want to try autodetection
+    // every time, when there's none
+    if (!buf_ptr || !buf_sz) {
+      printf ("Seems there's no IMC!\n");
+      state.imc.no_imc = 1;
+      goto check_arm_state;
+    }
+
     state.imc.ptr_buf = buf_ptr;
     state.imc.sz_buf = buf_sz;
     state.imc.ptr_wrpos_count = imc_addr + offsetof(struct imc_s, wrpos_count);
@@ -365,6 +390,7 @@ check_arm_state:
   if (! (dhcsr & DHCSR_S_HALT)) {
     if (set_dhcsr(dhcsr | DHCSR_C_HALT))
       return -3;
+    update_systick();
     dhcsr |= DHCSR_C_HALT | DHCSR_S_HALT;
     state.cfg.halted_by_us = 1;
   }
@@ -408,8 +434,9 @@ check_arm_state:
     if (state.arm.except.psr != UNKNOWN)
       state.arm.except.sp = sp + ((state.arm.except.psr & PSR_a) ? 0x24 : 0x20);
   }
-  printf("arm crashed!, pc=0x%X(0x%X), dhcsr=0x%X, dfsr=0x%X, icsr=0x%X\n",
+  printf("arm crashed!, pc=0x%X(0x%X), sp=0x%X(0x%X) dhcsr=0x%X, dfsr=0x%X, icsr=0x%X\n",
          state.arm.pc, state.arm.except.pc,
+         state.arm.sp, state.arm.except.sp,
          state.arm.dhcsr, state.arm.dfsr, state.arm.icsr);
   return 4;
 }
@@ -441,6 +468,7 @@ int console_update()
     int new = n;
     if (! (state.arm.dhcsr & DHCSR_NOT_RUNNING)) {
       set_dhcsr(state.arm.dhcsr | DHCSR_C_HALT);
+      update_systick();
       state.cfg.halted_by_us = 1;
     }
     // re-read wrpos and count
@@ -579,7 +607,7 @@ void arm_init(
   // enable DEBUGEN/C_HALT in DHCSR, so we could program DEMCR
   set_dhcsr(DHCSR_C_HALT);
   // set the core to halt on leaving RESET
-  set_demcr(DEMCR_VC_CORERST | DEMCR_VC_HARDERR);
+  set_demcr(DEMCR_VC_CORERST /*| DEMCR_VC_HARDERR*/);
 }
 
 int arm_resume(void)
@@ -608,7 +636,7 @@ int arm_resume(void)
     // paint registers r0..r15 (excluding pc and sp) with junk values
     unsigned rval = 0x01010101;
     for (int i = 0; i < REG_PC; ++i) {
-      if (i != REG_SP) 
+      if (i != REG_SP)
         set_arm_reg(i, rval, armregnames[i]);
       rval += 0x01010101;
     }
@@ -619,17 +647,9 @@ int arm_resume(void)
             dhcsr, dfsr, state.arm.vtor, get_demcr());
     // clear the VCATCH in DFSR
     set_dfsr(dfsr);
-    // un-halt the CPU and wait until VTOR changes (or until the ARM stops)
+    // un-halt the CPU
     if (set_dhcsr(dhcsr & ~DHCSR_C_HALT))
       return -2;
-    while (((! state.arm.vtor) || (state.arm.vtor == UNKNOWN)) &&
-           ((dhcsr == UNKNOWN) || ! (dhcsr & DHCSR_NOT_RUNNING)))
-    {
-      dhcsr = get_dhcsr();
-      state.arm.vtor = get_vtor();
-    }
-    if (dhcsr != UNKNOWN)
-      state.arm.dhcsr = dhcsr;
   }
   if (dhcsr == UNKNOWN)
     return -3;
@@ -703,7 +723,7 @@ int get_arm_state(uint8_t *resp)
     }
     unsigned state_size = 4*2; // systick, dhcsr
     if (i >= 1)
-      state_size += 4; // add pc
+      state_size += 4*1; // add pc
     if (i >= 2)
       state_size += 4*21; // add r0..12, sp, lr, dfsr, psr, msp, psp, icsr, ctrl/primask
     if (i >= 4)
