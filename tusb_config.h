@@ -65,12 +65,21 @@
 
 //------------- CLASS -------------//
 #define CFG_TUD_HID             0
+#ifdef ENABLE_USB_TTY
+#define CFG_TUD_CDC             1 // stdout
+#else
 #define CFG_TUD_CDC             0
+#endif
 #define CFG_TUD_MSC             0
 #define CFG_TUD_MIDI            0
 #define CFG_TUD_VENDOR          1
 
-#define CFG_TUD_VENDOR_RX_BUFSIZE 1536
+#ifdef ENABLE_USB_TTY
+#define CFG_TUD_CDC_RX_BUFSIZE    256
+#define CFG_TUD_CDC_TX_BUFSIZE    256
+#endif
+
+#define CFG_TUD_VENDOR_RX_BUFSIZE 1536 // 24x64bytes
 #define CFG_TUD_VENDOR_TX_BUFSIZE 1536
 
 #ifdef __cplusplus

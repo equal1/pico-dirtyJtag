@@ -112,7 +112,12 @@ int main()
   board_init(); 
   // configure the LED and the debug output
   led_init(PIN_LED);
+# ifdef ENABLE_SERIAL_TTY
   stdio_uart_init_full(UART_DBG, 115200, PIN_DBGTX, -1);
+# endif
+# ifdef ENABLE_USB_TTY
+  stdio_usb_init();
+# endif
   // configure the signals directly connected to the Pico
   djtag_init();
   // get the Pico's serial ID

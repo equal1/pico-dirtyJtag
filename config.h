@@ -24,6 +24,9 @@
 # error Unknown board - should be either PICO_RP2040 or PICO_RP2350 
 #endif
 
+#define ENABLE_SERIAL_TTY // enable debug output on GP8 (UART 115200n8)
+#define ENABLE_USB_TTY    // enable debug output over USB (CDC ACM, /dev/ttyACM?)
+
 // size of any incoming, or outgoing, buffer
 #if 1
 # define MTU_SIZE 1500

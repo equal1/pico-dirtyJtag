@@ -35,6 +35,7 @@
 #define USB_DEVICE 0xC0CB
 #define STR_VENDOR "equal1"
 #define STR_DEVICE "JTAG"
+#define STR_CDC    "JTAG debug interface"
 
 
 /* C string for iSerialNumber in USB Device Descriptor, two chars per byte + terminating NUL */
@@ -87,13 +88,22 @@ uint8_t const * tud_descriptor_device_cb(void)
 enum
 {
   ITF_NUM_PROBE = 0,
+  ITF_NUM_CDC_1 = 1, // stdout
+  ITF_NUM_CDC_1_DATA,
   ITF_NUM_TOTAL
 };
 
-#define PROBE_OUT_EP_NUM 0x01
-#define PROBE_IN_EP_NUM  0x82
+#define PROBE_OUT_EP_NUM  0x01
+#define PROBE_IN_EP_NUM   0x82
+#define CDC_NOTIF_EP1_NUM 0x83 // stdout
+#define CDC_OUT_EP1_NUM   0x03
+#define CDC_IN_EP1_NUM    0x84
 
+#ifdef ENABLE_USB_TTY
+#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_VENDOR_DESC_LEN + TUD_CDC_DESC_LEN)
+#else
 #define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_VENDOR_DESC_LEN)
+#endif
 
 uint8_t const desc_configuration[CONFIG_TOTAL_LEN] =
 {
@@ -102,6 +112,11 @@ uint8_t const desc_configuration[CONFIG_TOTAL_LEN] =
 
   // Interface 2 : Interface number, string index, EP Out & IN address, EP size
   TUD_VENDOR_DESCRIPTOR(ITF_NUM_PROBE, 0, PROBE_OUT_EP_NUM, PROBE_IN_EP_NUM, 64),
+
+# ifdef ENABLE_USB_TTY
+  // Interface 3 : Interface number, string index, EP notification address and size, EP data address (out, in) and size.
+  TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_1, 4, CDC_NOTIF_EP1_NUM, 8, CDC_OUT_EP1_NUM, CDC_IN_EP1_NUM, 64)
+# endif
 };
 
 // Invoked when received GET CONFIGURATION DESCRIPTOR
@@ -118,48 +133,44 @@ uint8_t const * tud_descriptor_configuration_cb(uint8_t index)
 //--------------------------------------------------------------------+
 
 // array of pointer to string descriptors
-char const *string_desc_arr[] =
+static const char *const descriptor[] =
 {
-    (const char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
-    STR_VENDOR,                 // 1: Manufacturer
-    STR_DEVICE,                 // 2: Product
-    usb_serial,                 // 3: Serial, uses flash unique ID
+  (const char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
+  STR_VENDOR,                 // 1: Manufacturer
+  STR_DEVICE,                 // 2: Product
+  usb_serial,                 // 3: Serial, uses flash unique ID
+# ifdef ENABLE_USB_TTY
+  STR_CDC,                    // 4: CDC Interface 0
+# endif
 };
-
-static uint16_t _desc_str[32];
 
 // Invoked when received GET STRING DESCRIPTOR request
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
 uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
 {
-  (void) langid;
-
-  uint8_t chr_count;
-
-  if ( index == 0)
-  {
-    memcpy(&_desc_str[1], string_desc_arr[0], 2);
-    chr_count = 1;
-  }else
-  {
-    // Convert ASCII string into UTF-16
-
-    if ( !(index < sizeof(string_desc_arr)/sizeof(string_desc_arr[0])) ) return NULL;
-
-    const char* str = string_desc_arr[index];
-
-    // Cap at max char
-    chr_count = strlen(str);
-    if ( chr_count > 31 ) chr_count = 31;
-
-    for (uint8_t i=0; i<chr_count; i++)
-    {
-      _desc_str[1+i] = str[i];
+  (void)langid;
+  unsigned n;
+  static uint16_t _desc_str[32];
+  uint16_t *d = _desc_str + 1;
+  // first descriptor: language list ([0x0409: en-US])
+  if (! index) {
+    *d = *(uint16_t*)(descriptor[0]);
+    n = 1;
+  } 
+  // bad index?
+  else if ((index >= sizeof(descriptor)/sizeof(descriptor[0])) )
+    return NULL;
+  // all other descriptors: UTF16 strings
+  else {
+    const char *s = descriptor[index];
+    n = 0;
+    while (*s) {
+      *d++ = *s++;
+      if (++n == 31)
+        break;
     }
   }
-
   // first byte is length (including header), second byte is string type
-  _desc_str[0] = (TUSB_DESC_STRING << 8 ) | (2*chr_count + 2);
-
+  _desc_str[0] = (TUSB_DESC_STRING << 8 ) | (2*n + 2);
   return _desc_str;
 }

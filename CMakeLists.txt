@@ -57,7 +57,7 @@ pico_set_program_name(dirtyJtag "dirtyJtag")
 pico_set_program_version(dirtyJtag "0.1")
 
 pico_enable_stdio_uart(dirtyJtag 1)
-#pico_enable_stdio_usb(dirtyJtag 0)
+pico_enable_stdio_usb(dirtyJtag 1)
 
 # Create a library out of the compiled post-configure file.
 add_library(cmake_git_version_tracking STATIC ${POST_CONFIGURE_FILE})
