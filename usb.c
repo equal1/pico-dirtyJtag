@@ -88,8 +88,10 @@ uint8_t const * tud_descriptor_device_cb(void)
 enum
 {
   ITF_NUM_PROBE = 0,
+# ifdef ENABLE_USB_TTY
   ITF_NUM_CDC_1 = 1, // stdout
   ITF_NUM_CDC_1_DATA,
+# endif
   ITF_NUM_TOTAL
 };
 

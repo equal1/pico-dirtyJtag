@@ -40,22 +40,8 @@
 #include "utils.h"
 #include "cmd.h"
 
-//#define PRINT_ALL_CMDS
-
-static struct {
-  unsigned pos;
-  char cmd[252];
-} last_msg;
-
-static void cmd_printf(const char *msg, ...) {
-  va_list args;
-  va_start(args, msg);
-  last_msg.pos += vsprintf(last_msg.cmd + last_msg.pos, msg, args);
-}
-
-const char *last_cmd() {
-  return last_msg.cmd;
-}
+#define cmd_printf(...) ((void)(__VA_ARGS__))
+//#define cmd_printf(...) (printf(__VA_ARGS__))
 
 unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
@@ -64,8 +50,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
   struct pindesc_s pindesc; // pin description
   extern struct djtag_clk_s djtag_clocks;
   int n, m;
-  last_msg.pos = 0;
-  last_msg.cmd[0] = 0;
+  uint32_t a0, a1, a2, a3; // arguments (jtagx,armx)
   //cmd_printf("buf=%c(%p) sz=%u\n", buf, cmdbuf, cmdsz);
   struct {
     uint32_t pin, cfg, pull;
@@ -242,6 +227,8 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmd_printf("\t> %u\n", n);
       respbuf[resppos++] = n;
       cmdpos++;
+      if (n != 1)
+        printf("!BYPASS:%u\n", n);
       break;
 
     // get the device IDCODEs from the chain
@@ -258,6 +245,8 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
         memcpy(respbuf + resppos, idcodes, 4*n);
         resppos += 4*n;
       }
+      if (n != 1)
+        printf("!IDCODE_SCAN:%u\n", n);
       cmdpos++;
       break;
 
@@ -304,153 +293,172 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
     // perform a DPACC read
     case XCMD_DPACC_RD:
       // grab the address, 6-bits, rshifted by 2: (0..0xfc)>>2
-      n = (cmdbuf[cmdpos+1] & 0x3f) << 2;
-      cmd_printf(" %c# @%u DPACC_RD @0x%02X\n", buf, cmdpos, n);
+      a0 = (cmdbuf[cmdpos+1] & 0x3f) << 2;
+      cmd_printf(" %c# @%u DPACC_RD @0x%02X\n", buf, cmdpos, a0);
       // do the read
-      n = jtag_dpacc_rd(n, (uint32_t*)&m);
+      n = jtag_dpacc_rd(a0, (uint32_t*)&m);
       // prepare the response
       respbuf[resppos] = n;
       SET_WORD_AT(respbuf+resppos+1, m);
       cmdpos += 2; resppos += 5;
       cmd_printf("\t> (%X) %08X\n", n, m);
+      if (n != JTAG_OK)
+        printf("!DPACC_RD(0x%X)=0b%03b\n", a0, n);
       break;
 
     // perform a DPACC write
     case XCMD_DPACC_WR:
       // grab the address, 6-bits, rshifted by 2: (0..0xfc)>>2
-      n = (cmdbuf[cmdpos+1] & 0x3f) << 2;
+      a0 = (cmdbuf[cmdpos+1] & 0x3f) << 2;
       // grab the data
-      m = GET_WORD_AT(cmdbuf+cmdpos+2);
-      cmd_printf(" %c# @%u DPACC_WR @0x%02X 0x%X\n", buf, cmdpos, n, m);
+      a1 = GET_WORD_AT(cmdbuf+cmdpos+2);
+      cmd_printf(" %c# @%u DPACC_WR @0x%02X 0x%X\n", buf, cmdpos, a0, a1);
       // do the write
-      n = jtag_dpacc_wr(n, m);
+      n = jtag_dpacc_wr(a0, a1);
       // prepare the response
       respbuf[resppos] = n;
       cmdpos += 6; resppos += 1;
       cmd_printf("\t> (%X)\n", n);
+      if (n != JTAG_OK)
+        printf("!DPACC_WR(0x%X,0x%X)=0b%03b\n", a0, a1, n);
       break;
 
     // perform an APACC read
     case XCMD_APACC_RD:
       // grab the AP
-      n = cmdbuf[cmdpos+1];
+      a0 = cmdbuf[cmdpos+1];
       // grab the address, 11-bits, rshifted by 2: (0..0x1ffc)>>2
-      m = (GET_HWORD_AT(cmdbuf+cmdpos+2) & 0x7ff) << 2;
+      a1 = (GET_HWORD_AT(cmdbuf+cmdpos+2) & 0x7ff) << 2;
       cmd_printf(" %c# @%u APACC_RD%s @%u:0x%04X\n", buf, cmdpos,
-                 (n >> 7)?"\'":"", n & 0x7f, m );
+                 (a0 >> 7)?"\'":"", a0 & 0x7f, a1 );
       // do the read
-      n = jtag_apacc_rd(n, m, (uint32_t*)&m);
+      n = jtag_apacc_rd(a0, a1, (uint32_t*)&m);
       // prepare the response
       respbuf[resppos] = n;
       SET_WORD_AT(respbuf+resppos+1, m);
       cmdpos += 4; resppos += 5;
       cmd_printf("\t> (%X) %08X\n", n, m);
+      if (n != JTAG_OK)
+        printf("!APACC_RD(%u:0x%X)=0b%03b\n", a0, a1, n);
       break;
 
     // perform an APACC write
     case XCMD_APACC_WR:
       // grab the AP
-      n = cmdbuf[cmdpos+1];
+      a0 = cmdbuf[cmdpos+1];
       // grab the address, 11-bits, rshifted by 2: (0..0x1ffc)>>2
-      m = (GET_HWORD_AT(cmdbuf+cmdpos+2) & 0x7ff) << 2;
+      a1 = (GET_HWORD_AT(cmdbuf+cmdpos+2) & 0x7ff) << 2;
       // grab the data
-      {
-      uint32_t p = GET_WORD_AT(cmdbuf+cmdpos+4);
+      a2 = GET_WORD_AT(cmdbuf+cmdpos+4);
       cmd_printf(" %c# @%u APACC_WR%s @%u:0x%04X 0x%08X\n", buf, cmdpos,
-                 (n >> 7)?"\'":"", n & 0x7f, m, p );
+                 (a0 >> 7)?"\'":"", a0 & 0x7f, a1, a2 );
       // do the write
-      n = jtag_apacc_wr(n, m, p);
-      }
+      n = jtag_apacc_wr(a0, a1, a2);
       // prepare the response
       respbuf[resppos] = n;
       cmd_printf("\t> (%X)\n", n);
       cmdpos += 8; resppos += 1;
+      if (n != JTAG_OK)
+        printf("!APACC_WR(%u:0x%X,0x%X)=0b%03b\n", a0, a1, a2, n);
       break;
 
     // perform bus reads
     case XCMD_BUS_RD:
       // grab the address
-      n = GET_WORD_AT(cmdbuf+cmdpos+1) & ~3;
-      cmd_printf(" %c# @%u BUS_RD 0x%08X\n", buf, cmdpos, n);
+      a0 = GET_WORD_AT(cmdbuf+cmdpos+1) & ~3;
+      cmd_printf(" %c# @%u BUS_RD 0x%08X\n", buf, cmdpos, a0);
       // perform the read
-      n = jtag_bus_rd(n, (uint32_t*)&m);
+      n = jtag_bus_rd(a0, (uint32_t*)&m);
       cmd_printf("\t> (%X) %08X\n", n, m);
       // prepare the response
-      if (n == 0b100) { // OK
+      if (n == JTAG_OK) { // OK
         SET_WORD_AT(respbuf+resppos, m);
         resppos += 4;
-      } else
+      } else {
         respbuf[resppos++] = n;
+        printf("!BUS_RD(0x%X)=0b%03b\n", a0, n);
+      }
       cmdpos += 5;
       break;
     case XCMD_CPU_RD:
       // grab the 16-bit address
-      n = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
-      n |= 0xe0000000; // SCB_BASE
-      cmd_printf(" %c# @%u CPU_RD 0x%08X\n", buf, cmdpos, n);
+      a0 = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
+      a0 |= 0xe0000000; // SCB_BASE
+      cmd_printf(" %c# @%u CPU_RD 0x%08X\n", buf, cmdpos, a0);
       // perform the read
-      n = jtag_cpu_rd(n, (uint32_t*)&m);
+      n = jtag_cpu_rd(a0, (uint32_t*)&m);
       cmd_printf("\t> (%X) %08X\n", n, m);
       // prepare the response
       if (n == 0b100) { // OK
         SET_WORD_AT(respbuf+resppos, m);
         resppos += 4;
-      } else
+      } else {
         respbuf[resppos++] = n;
+        printf("!CPU_RD(0x%X)=0b%03b\n", a0, n);
+      }
       cmdpos += 3;
       break;
 
     // perform bus writes
     case XCMD_BUS_WR:
       // grab the address
-      n = GET_WORD_AT(cmdbuf+cmdpos+1) & ~3;
-      m = GET_WORD_AT(cmdbuf+cmdpos+5);
-      cmd_printf(" %c# @%u BUS_WR 0x%08X 0x%08X\n", buf, cmdpos, n, m);
+      a0 = GET_WORD_AT(cmdbuf+cmdpos+1) & ~3;
+      a1 = GET_WORD_AT(cmdbuf+cmdpos+5);
+      cmd_printf(" %c# @%u BUS_WR 0x%08X 0x%08X\n", buf, cmdpos, a0, a1);
       // perform the write
-      n = jtag_bus_wr(n, m);
+      n = jtag_bus_wr(a0, a1);
       cmd_printf("\t> (%X)\n", n);
       // prepare the response
       respbuf[resppos++] = n;
       cmdpos += 9;
+      if (n != JTAG_OK)
+        printf("!BUS_WR(0x%X,0x%X)=0b%03b\n", a0, a1, n);
       break;
     case XCMD_CPU_WR:
       // grab the address
-      n = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
-      m = GET_WORD_AT(cmdbuf+cmdpos+3);
-      n |= 0xe0000000; // SCB_BASE
-      cmd_printf(" %c# @%u CPU_WR 0x%08X 0x%08X\n", buf, cmdpos, n, m);
+      a0 = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
+      a1 = GET_WORD_AT(cmdbuf+cmdpos+3);
+      a0 |= 0xe0000000; // SCB_BASE
+      cmd_printf(" %c# @%u CPU_WR 0x%08X 0x%08X\n", buf, cmdpos, a0, a1);
       // perform the write
-      n = jtag_cpu_wr(n, m);
+      n = jtag_cpu_wr(a0, a1);
       cmd_printf("\t> (%X)\n", n);
       // prepare the response
       respbuf[resppos++] = n;
       cmdpos += 7;
+      if (n != JTAG_OK)
+        printf("!CPU_WR(0x%X,0x%X)=0b%03b\n", a0, a1, n);
       break;
 
     // perform CPU bus write-and-readback
     case XCMD_CPU_WRRD:
       // grab the address
-      n = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
-      m = GET_WORD_AT(cmdbuf+cmdpos+3);
-      n |= 0xe0000000; // SCB_BASE
-      cmd_printf(" %c# @%u CPU_WRRD 0x%08X 0x%08X\n", buf, cmdpos, n, m);
+      a0 = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
+      a1 = GET_WORD_AT(cmdbuf+cmdpos+3);
+      a0 |= 0xe0000000; // SCB_BASE
+      cmd_printf(" %c# @%u CPU_WRRD 0x%08X 0x%08X\n", buf, cmdpos, a0, a1);
       // perform the write
-      m = jtag_cpu_wr(n, m);
+      m = jtag_cpu_wr(a0, a1);
       // if the write failed, don't attempt the read back
       if (m != 0b100) {
         cmd_printf("\twr> (%X)\n", m);
         // prepare the response
         respbuf[resppos++] = n|0x10;
+        if (m != JTAG_OK)
+          printf("!CPU_WRRD(0x%X,0x%X).WR=0b%03b\n", a0, a1, m);
       }
       // if it succeeded
       else {
-        n = jtag_cpu_rd(n, (uint32_t*)&m);
+        n = jtag_cpu_rd(a0, (uint32_t*)&m);
         cmd_printf("\t> (%X) %08X\n", n, m);
         if (n == 0b100) { // OK
           SET_WORD_AT(respbuf+resppos, m);
           resppos += 4;
-        } else
+        } else {
           respbuf[resppos++] = n;
+          if (n != JTAG_OK)
+            printf("!CPU_WRRD(0x%X,0x%X).RD=0b%03b\n", a0, a1, n);
+        }
       }
       cmdpos += 7;
       break;
@@ -458,11 +466,11 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
     // bus (SYS) block accesses
     case XCMD_BLOCK_RD:
       // grab the address and count
-      m = 1 + cmdbuf[cmdpos+1];
-      n = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
-      cmd_printf(" %c# @%u BLOCK_RD 0x%08X %u\n", buf, cmdpos, n, m);
-      {
+      a0 = 1 + cmdbuf[cmdpos+1];
+      a1 = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
+      cmd_printf(" %c# @%u BLOCK_RD 0x%08X %u\n", buf, cmdpos, a0, a1);
       // perform the reads; bail out on the first error
+      m = a0; n = a1;
       int p;
       while (m--) {
         uint32_t q;
@@ -471,58 +479,60 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
           SET_WORD_AT(respbuf+resppos, q);
         else {
           respbuf[resppos++] = p;
+          printf("!BUS_XRD(%u,0x%X,%u) @0x%X 0b%03b\n", a0, a1, n, p);
           break;
         }
         n += 4; resppos += 4;
       }
       // print the number of read left, the last address we reached, and the most recent response
       cmd_printf("\t> %d 0x%08X (%X)\n", m, n, p);
-      }
       cmdpos += 6;
       break;
     case XCMD_BLOCK_WR:
       // grab the address and count
-      m = 1 + cmdbuf[cmdpos+1];
-      n = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
-      {
-      cmd_printf(" %c# @%u BLOCK_WR 0x%08X %u\n", buf, cmdpos, n, m);
+      a0 = 1 + cmdbuf[cmdpos+1];
+      a1 = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
+      cmd_printf(" %c# @%u BLOCK_WR 0x%08X %u\n", buf, cmdpos, a1, a0);
       // perform the writes; bail out on the first error
-      uint32_t p = cmdpos + 6, q;
+      m = a0; n = a1;
+      p = cmdpos + 6;
       while (m--) {
-        q = jtag_bus_wr(n, GET_WORD_AT(cmdbuf+p));
-        if (q != 0b100)
+        a2 = jtag_bus_wr(n, GET_WORD_AT(cmdbuf+p));
+        if (a2 != JTAG_OK) {
+          printf("!BUS_XWR(%u,0x%X) @0x%X 0b%03b\n", a0, a1, n, a2);
           break;
+        }
         n += 4; p += 4;
       }
       // send back the number of writes not completed, and the most recent response
       respbuf[resppos++] = m;
-      respbuf[resppos++] = q;
+      respbuf[resppos++] = a2;
       // print the number of writes left, the last address we reached, and the most recent response
-      cmd_printf("\t> %d 0x%08X (%X)\n", m, n, q);
-      }
+      cmd_printf("\t> %d 0x%08X (%X)\n", m, n, a2);
       // skip the reminder of the command regardless of the number of locations actually written
       cmdpos += 6 + 4 + 4*cmdbuf[cmdpos+1];
       break;
     case XCMD_BLOCK_FILL:
       // grab the address, count and value
-      m = 1 + cmdbuf[cmdpos+1];
-      n = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
-      {
-      uint32_t p = GET_WORD_AT(cmdbuf+cmdpos+6), q;
-      cmd_printf(" %c# @%u FILL_WR 0x%08X %u 0x%08X\n", buf, cmdpos, n, m, p);
+      a0 = 1 + cmdbuf[cmdpos+1];
+      a1 = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
+      a2 = GET_WORD_AT(cmdbuf+cmdpos+6);
+      cmd_printf(" %c# @%u FILL_WR 0x%08X %u 0x%08X\n", buf, cmdpos, a1, a0, a2);
       // perform the writes; bail out on the first error
+      m = a0;
       while (m--) {
-        q = jtag_bus_wr(n, p);
-        if (q != 0b100)
+        p = jtag_bus_wr(n, a2);
+        if (p != 0b100) {
+          printf("!BUS_FILL(%u,0x%X,0x%X) @0x%X 0b%03b\n", a0, a1, a2, n, p);
           break;
+        }
         n += 4;
       }
       // send back the number of writes not completed, and the most recent response
       respbuf[resppos++] = m;
-      respbuf[resppos++] = q;
+      respbuf[resppos++] = p;
       // print the number of writes left, the last address we reached, and the most recent response
-      cmd_printf("\t> %d 0x%08X (%X)\n", m, n, q);
-      }
+      cmd_printf("\t> %d 0x%08X (%X)\n", m, n, p);
       cmdpos += 10;
       break;
 
@@ -708,9 +718,5 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
     }
   }
   cmd_printf("\n");
-  // print what happened, if debugging
-# ifdef PRINT_ALL_CMDS
-  puts(last_msg.txt);
-# endif
   return resppos;
 }

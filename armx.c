@@ -118,8 +118,10 @@ static uint32_t get_cpu_reg(unsigned addr, const char *name) {
   int e = jtag_cpu_rd(addr, &res);
   if (e != JTAG_OK) {
     // try once more
+    jtag_abort(ABORT_ALL);
     e = jtag_cpu_rd(addr, &res);
     if (e != JTAG_OK) {
+      jtag_abort(ABORT_ALL);
       printf("failed to read %s@0x%04X!\n", name, addr);
       return UNKNOWN;
     }
@@ -132,8 +134,10 @@ static uint32_t set_cpu_reg(unsigned addr, uint32_t val, const char *name) {
   int e = jtag_cpu_wr(addr, val);
   if (e != JTAG_OK) {
     // try once more
+    jtag_abort(ABORT_ALL);
     e = jtag_cpu_wr(addr, val);
     if (e != JTAG_OK) {
+      jtag_abort(ABORT_ALL);
       printf("failed to write %s@0x%04X to 0x%X!\n", name, addr, val);
       return -1;
     }
@@ -216,9 +220,11 @@ static uint32_t get_ahb_reg(unsigned addr, const char *name) {
   uint32_t res;
   int e = jtag_bus_rd(addr, &res);
   if (e != JTAG_OK) {
+    jtag_abort(ABORT_ALL);
     // try once more
     e = jtag_bus_rd(addr, &res);
     if (e != JTAG_OK) {
+      jtag_abort(ABORT_ALL);
       printf("failed to read %s@0x%04X!\n", name, addr);
       return UNKNOWN_DATA; // '????'
     }
@@ -230,9 +236,11 @@ static uint32_t get_ahb_reg(unsigned addr, const char *name) {
 static uint32_t set_ahb_reg(unsigned addr, uint32_t val, const char *name) {
   int e = jtag_bus_wr(addr, val);
   if (e != JTAG_OK) {
+    jtag_abort(ABORT_ALL);
     // try once more
     e = jtag_bus_wr(addr, val);
     if (e != JTAG_OK) {
+      jtag_abort(ABORT_ALL);
       printf("failed to write %s@0x%04X to 0x%X!\n", name, addr, val);
       return -1;
     }

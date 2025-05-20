@@ -456,7 +456,11 @@ void whoami_init()
   ipconfig_ptr = 0;
   unsigned sysclk_khz = (clock_get_hz(clk_sys) + 500)/ 1000;
   // print the version
-  p += sprintf(p, "equal1 JTAG (%s, %s%s %s) caps=0x%08X\n",
+  p += sprintf(p, "equal1 JTAG (%s, %s%s %s) "
+#   ifdef ENABLE_USB_TTY
+               "USBDBG "
+#   endif
+               "caps=0x%08X\n",
                git_Branch, git_Describe, git_AnyUncommittedChanges?"(dirty)":"",
                 git_Remote,
                IMPLEMENTED_CAPS);
