@@ -303,7 +303,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmdpos += 2; resppos += 5;
       cmd_printf("\t> (%X) %08X\n", n, m);
       if (n != JTAG_OK)
-        printf("!DPACC_RD(0x%X)=0b%03b\n", a0, n);
+        printf("!DPACC_RD(0x%02X) > 0b%03b\n", a0, n);
       break;
 
     // perform a DPACC write
@@ -320,7 +320,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmdpos += 6; resppos += 1;
       cmd_printf("\t> (%X)\n", n);
       if (n != JTAG_OK)
-        printf("!DPACC_WR(0x%X,0x%X)=0b%03b\n", a0, a1, n);
+        printf("!DPACC_WR(0x%02X,0x%X) > 0b%03b\n", a0, a1, n);
       break;
 
     // perform an APACC read
@@ -339,7 +339,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmdpos += 4; resppos += 5;
       cmd_printf("\t> (%X) %08X\n", n, m);
       if (n != JTAG_OK)
-        printf("!APACC_RD(%u:0x%X)=0b%03b\n", a0, a1, n);
+        printf("!APACC_RD(%u:0x%X) > 0b%03b\n", a0, a1, n);
       break;
 
     // perform an APACC write
@@ -350,7 +350,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       a1 = (GET_HWORD_AT(cmdbuf+cmdpos+2) & 0x7ff) << 2;
       // grab the data
       a2 = GET_WORD_AT(cmdbuf+cmdpos+4);
-      cmd_printf(" %c# @%u APACC_WR%s @%u:0x%04X 0x%08X\n", buf, cmdpos,
+      cmd_printf(" %c# @%u APACC_WR%s @%u:0x%04X 0x%X\n", buf, cmdpos,
                  (a0 >> 7)?"\'":"", a0 & 0x7f, a1, a2 );
       // do the write
       n = jtag_apacc_wr(a0, a1, a2);
@@ -359,14 +359,14 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmd_printf("\t> (%X)\n", n);
       cmdpos += 8; resppos += 1;
       if (n != JTAG_OK)
-        printf("!APACC_WR(%u:0x%X,0x%X)=0b%03b\n", a0, a1, a2, n);
+        printf("!APACC_WR(%u:0x%04X,0x%X) > 0b%03b\n", a0, a1, a2, n);
       break;
 
     // perform bus reads
     case XCMD_BUS_RD:
       // grab the address
       a0 = GET_WORD_AT(cmdbuf+cmdpos+1) & ~3;
-      cmd_printf(" %c# @%u BUS_RD 0x%08X\n", buf, cmdpos, a0);
+      cmd_printf(" %c# @%u BUS_RD 0x%04X\n", buf, cmdpos, a0);
       // perform the read
       n = jtag_bus_rd(a0, (uint32_t*)&m);
       cmd_printf("\t> (%X) %08X\n", n, m);
@@ -376,7 +376,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
         resppos += 4;
       } else {
         respbuf[resppos++] = n;
-        printf("!BUS_RD(0x%X)=0b%03b\n", a0, n);
+        printf("!BUS_RD(0x%04X) > 0b%03b\n", a0, n);
       }
       cmdpos += 5;
       break;
@@ -384,7 +384,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // grab the 16-bit address
       a0 = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
       a0 |= 0xe0000000; // SCB_BASE
-      cmd_printf(" %c# @%u CPU_RD 0x%08X\n", buf, cmdpos, a0);
+      cmd_printf(" %c# @%u CPU_RD 0x%X\n", buf, cmdpos, a0);
       // perform the read
       n = jtag_cpu_rd(a0, (uint32_t*)&m);
       cmd_printf("\t> (%X) %08X\n", n, m);
@@ -394,7 +394,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
         resppos += 4;
       } else {
         respbuf[resppos++] = n;
-        printf("!CPU_RD(0x%X)=0b%03b\n", a0, n);
+        printf("!CPU_RD(0x%X) > 0b%03b\n", a0, n);
       }
       cmdpos += 3;
       break;
@@ -404,7 +404,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // grab the address
       a0 = GET_WORD_AT(cmdbuf+cmdpos+1) & ~3;
       a1 = GET_WORD_AT(cmdbuf+cmdpos+5);
-      cmd_printf(" %c# @%u BUS_WR 0x%08X 0x%08X\n", buf, cmdpos, a0, a1);
+      cmd_printf(" %c# @%u BUS_WR 0x%04X 0x%X\n", buf, cmdpos, a0, a1);
       // perform the write
       n = jtag_bus_wr(a0, a1);
       cmd_printf("\t> (%X)\n", n);
@@ -412,14 +412,14 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       respbuf[resppos++] = n;
       cmdpos += 9;
       if (n != JTAG_OK)
-        printf("!BUS_WR(0x%X,0x%X)=0b%03b\n", a0, a1, n);
+        printf("!BUS_WR(0x%04X,0x%08X) > 0b%03b\n", a0, a1, n);
       break;
     case XCMD_CPU_WR:
       // grab the address
       a0 = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
       a1 = GET_WORD_AT(cmdbuf+cmdpos+3);
       a0 |= 0xe0000000; // SCB_BASE
-      cmd_printf(" %c# @%u CPU_WR 0x%08X 0x%08X\n", buf, cmdpos, a0, a1);
+      cmd_printf(" %c# @%u CPU_WR 0x%X 0x%X\n", buf, cmdpos, a0, a1);
       // perform the write
       n = jtag_cpu_wr(a0, a1);
       cmd_printf("\t> (%X)\n", n);
@@ -427,7 +427,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       respbuf[resppos++] = n;
       cmdpos += 7;
       if (n != JTAG_OK)
-        printf("!CPU_WR(0x%X,0x%X)=0b%03b\n", a0, a1, n);
+        printf("!CPU_WR(0x%X,0x%08X) > 0b%03b\n", a0, a1, n);
       break;
 
     // perform CPU bus write-and-readback
@@ -436,7 +436,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       a0 = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
       a1 = GET_WORD_AT(cmdbuf+cmdpos+3);
       a0 |= 0xe0000000; // SCB_BASE
-      cmd_printf(" %c# @%u CPU_WRRD 0x%08X 0x%08X\n", buf, cmdpos, a0, a1);
+      cmd_printf(" %c# @%u CPU_WRRD 0x%X 0x%X\n", buf, cmdpos, a0, a1);
       // perform the write
       m = jtag_cpu_wr(a0, a1);
       // if the write failed, don't attempt the read back
@@ -445,20 +445,19 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
         // prepare the response
         respbuf[resppos++] = n|0x10;
         if (m != JTAG_OK)
-          printf("!CPU_WRRD(0x%X,0x%X).WR=0b%03b\n", a0, a1, m);
+          printf("!CPU_WRRD(0x%X,0x%08X).WR > 0b%03b\n", a0, a1, m);
+        break;
       }
       // if it succeeded
-      else {
-        n = jtag_cpu_rd(a0, (uint32_t*)&m);
-        cmd_printf("\t> (%X) %08X\n", n, m);
-        if (n == 0b100) { // OK
-          SET_WORD_AT(respbuf+resppos, m);
-          resppos += 4;
-        } else {
-          respbuf[resppos++] = n;
-          if (n != JTAG_OK)
-            printf("!CPU_WRRD(0x%X,0x%X).RD=0b%03b\n", a0, a1, n);
-        }
+      n = jtag_cpu_rd(a0, (uint32_t*)&m);
+      cmd_printf("\t> (%X) %08X\n", n, m);
+      if (n == 0b100) { // OK
+        SET_WORD_AT(respbuf+resppos, m);
+        resppos += 4;
+      } else {
+        respbuf[resppos++] = n;
+        if (n != JTAG_OK)
+          printf("!CPU_WRRD(0x%X,0x%08X).RD > 0b%03b\n", a0, a1, n);
       }
       cmdpos += 7;
       break;
@@ -468,7 +467,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // grab the address and count
       a0 = 1 + cmdbuf[cmdpos+1];
       a1 = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
-      cmd_printf(" %c# @%u BLOCK_RD 0x%08X %u\n", buf, cmdpos, a0, a1);
+      cmd_printf(" %c# @%u BLOCK_RD 0x%04X %u\n", buf, cmdpos, a0, a1);
       // perform the reads; bail out on the first error
       m = a0; n = a1;
       int p;
@@ -479,7 +478,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
           SET_WORD_AT(respbuf+resppos, q);
         else {
           respbuf[resppos++] = p;
-          printf("!BUS_XRD(%u,0x%X,%u) @0x%X 0b%03b\n", a0, a1, n, p);
+          printf("!BUS_XRD(%u,0x%04X) @0x%X > 0b%03b\n", a0, a1, n, p);
           break;
         }
         n += 4; resppos += 4;
@@ -492,14 +491,14 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // grab the address and count
       a0 = 1 + cmdbuf[cmdpos+1];
       a1 = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
-      cmd_printf(" %c# @%u BLOCK_WR 0x%08X %u\n", buf, cmdpos, a1, a0);
+      cmd_printf(" %c# @%u BLOCK_WR 0x%04X %u\n", buf, cmdpos, a1, a0);
       // perform the writes; bail out on the first error
       m = a0; n = a1;
       p = cmdpos + 6;
       while (m--) {
         a2 = jtag_bus_wr(n, GET_WORD_AT(cmdbuf+p));
         if (a2 != JTAG_OK) {
-          printf("!BUS_XWR(%u,0x%X) @0x%X 0b%03b\n", a0, a1, n, a2);
+          printf("!BUS_XWR(%u,0x%04X) @0x%X -> 0b%03b\n", a0, a1, n, a2);
           break;
         }
         n += 4; p += 4;
@@ -517,13 +516,13 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       a0 = 1 + cmdbuf[cmdpos+1];
       a1 = GET_WORD_AT(cmdbuf+cmdpos+2) & ~3;
       a2 = GET_WORD_AT(cmdbuf+cmdpos+6);
-      cmd_printf(" %c# @%u FILL_WR 0x%08X %u 0x%08X\n", buf, cmdpos, a1, a0, a2);
+      cmd_printf(" %c# @%u BLOCK_FILL 0x%04X %u 0x%X\n", buf, cmdpos, a1, a0, a2);
       // perform the writes; bail out on the first error
-      m = a0;
+      m = a0; n = a1;
       while (m--) {
         p = jtag_bus_wr(n, a2);
         if (p != 0b100) {
-          printf("!BUS_FILL(%u,0x%X,0x%X) @0x%X 0b%03b\n", a0, a1, a2, n, p);
+          printf("!BUS_FILL(%u,0x%04X,0x%08X) @0x%X -> 0b%03b\n", a0, a1, a2, n, p);
           break;
         }
         n += 4;
@@ -532,7 +531,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       respbuf[resppos++] = m;
       respbuf[resppos++] = p;
       // print the number of writes left, the last address we reached, and the most recent response
-      cmd_printf("\t> %d 0x%08X (%X)\n", m, n, p);
+      cmd_printf("\t> %d 0x%04X (%X)\n", a0-(m+1), n, p);
       cmdpos += 10;
       break;
 
@@ -540,19 +539,19 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // void arm_init(
       //   uint32_t imc_write, unsigned sz_imc_write,
       //   uint32_t reset_addr, unsigned dbg_bit, unsigned m0_bit);
-        uint32_t imcwrite_addr = GET_WORD_AT(cmdbuf+cmdpos+1) & ~1;
-        uint16_t imcwrite_sz = GET_WORD_AT(cmdbuf+cmdpos+5) & ~1;
-        uint32_t reset_addr = GET_WORD_AT(cmdbuf+cmdpos+7) & ~3;
-        uint8_t rst_dbg_bit = cmdbuf[cmdpos+11];
-        uint8_t rst_m0_bit = cmdbuf[cmdpos+12];
-        cmd_printf(" %c# @%u ARM_INIT imc_write=0x%04X..%04X, rst_addr=0x%X m0=%u m0dbg=%u\n", 
-          buf, cmdpos,
-          imcwrite_addr, imcwrite_addr + imcwrite_sz - 1, 
-          reset_addr, rst_dbg_bit, rst_m0_bit);
-        arm_init(imcwrite_addr, imcwrite_sz, 
-                 reset_addr, rst_dbg_bit, rst_m0_bit);
-        cmdpos += 13;
-        }
+      uint32_t imcwrite_addr = GET_WORD_AT(cmdbuf+cmdpos+1) & ~1;
+      uint16_t imcwrite_sz = GET_WORD_AT(cmdbuf+cmdpos+5) & ~1;
+      uint32_t reset_addr = GET_WORD_AT(cmdbuf+cmdpos+7) & ~3;
+      uint8_t rst_dbg_bit = cmdbuf[cmdpos+11];
+      uint8_t rst_m0_bit = cmdbuf[cmdpos+12];
+      cmd_printf(" %c# @%u ARM_INIT imc_write=0x%04X..%04X, rst_addr=0x%X m0=%u m0dbg=%u\n", 
+        buf, cmdpos,
+        imcwrite_addr, imcwrite_addr + imcwrite_sz - 1, 
+        reset_addr, rst_dbg_bit, rst_m0_bit);
+      arm_init(imcwrite_addr, imcwrite_sz, 
+               reset_addr, rst_dbg_bit, rst_m0_bit);
+      cmdpos += 13;
+      }
       break;
     case XCMD_ARM_RESUME:
       // int arm_resume(void);
@@ -569,14 +568,18 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // {
       //   reg_sz, imc_sz : uint16_t;
       //   regs : {
-      //     uint32_t dhcsr;
-      //     // if not running (sleeping/lockup/halted/exception)
-      //     uint32_t pc;
-      //     // if not running/sleeping (lockup/halted/exception)
-      //     uint32_t systick, dfsr, icsr;
-      //     uint32_t r[14], psr, ctrl_primask;
-      //     // if an exception happened
-      //     uint32_t except_r0[4], except_r12[4], psr;
+      //     systick, dhcsr : uint32_t; // systick valid only if NOT sleeping
+      //     // if sleeping, locked/halted or crashed
+      //     pc : uint32_t;
+      //     // if locked/halted or crashed
+      //     r[15] : uint32_t;
+      //     dfsr : uint32_t;
+      //     msp, psp : uint32_t;
+      //     icsr : uint32_t;
+      //     ctrl_primask : uint32_t;
+      //     // if an exception happened (crashed)
+      //     except_r[4], except_r12 : uint32_t;
+      //     except_lr, except_pc, except_psr, except_sp : uint32_t;
       //   }
       //   imc : char[imc_sz];
       // }
@@ -595,7 +598,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
           state = "lockup";
         else if (dhcsr & DHCSR_S_HALT)
           state = "halted";
-        cmd_printf(" %s", state);
+        cmd_printf(" %s @t=0x%06X", state, *(uint32_t*)(respbuf + resppos + 4));
         if (m >= 12)
           cmd_printf(" pc=0x%04X", *(uint32_t*)(respbuf + resppos + 12));
       }
