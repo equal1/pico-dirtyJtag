@@ -156,6 +156,9 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
   }
   svc->last_sstate = sstate;
 
+  // tcp only: disconnect message
+  const char *const dmsg = svc->is_tcp ? "; disconnecting client" : "";
+
   // -------------------------------------------------------------------------
   // if we're in the send-reply phase
   if (svc->state == SVC_DO_SEND) {
@@ -189,8 +192,7 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
     if (expected != actual) {
       printf("%s: protocol error: "
              "expected response: %ubytes, have: %ubytes%s...\n",
-             svc->svcname, expected, actual,
-             svc->is_tcp ? "; disconnecting client" : "");
+             svc->svcname, expected, actual, dmsg);
       // reboot if the protocol was badly violated
       if ((expected > BUFFER_SIZE) || (actual > BUFFER_SIZE))
         bad_error();
@@ -202,25 +204,51 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
     if (actual != svc->out.buf.response_size + 4) {
       printf("%s: internal error: "
              "response size set to: %ubytes, payload: %ubytes%s...\n",
-             svc->svcname, actual, svc->out.buf.response_size,
-             svc->is_tcp ? "; disconnecting client" : "");
+             svc->svcname, actual, svc->out.buf.response_size, dmsg);
       goto close_and_exit;
     }
     // send the reply and resume waiting for data
-    int transferred;
-    if (svc->is_tcp)
-      transferred = send(sock, (uint8_t*)&svc->out.buf, actual);
-    else
-      // note: cli_ip and cli_port only change during the SVC_RECV_ETH state,
-      // so in SVC_SEND_ETH state, they reflect the IP/port from which we got the most
-      // recent command
-      transferred = sendto(sock, (uint8_t*)&svc->out.buf, actual, svc->cli_ip.byte, svc->cli_port);
-    if (transferred != actual) {
-      printf("%s: send error (wanted: %d; sent: %d)%s...\n",
-             svc->svcname, actual, transferred,
-             svc->is_tcp ? "; disconnecting client" : "");
-      goto close_and_exit;
+    uint8_t *src = (uint8_t*)&svc->out.buf;
+    int transferred = 0;
+    int retries = 0;
+    int iter = 0;
+    while (actual > 0) {
+      int n;
+      ++iter;
+      if (svc->is_tcp)
+        n = send(sock, src, actual);
+      else
+        // note: cli_ip and cli_port only change during the SVC_RECV_ETH state,
+        // so in SVC_SEND_ETH state, they reflect the IP/port from which we got the most
+        // recent command
+        n = sendto(sock, src, actual, svc->cli_ip.byte, svc->cli_port);
+      // if we failed, give up
+      if (n < 0) {
+        printf("%s: send error %d%s...\n",
+               svc->svcname, n, dmsg);
+        goto close_and_exit;
+      }
+      // if we got something, see how we're doing
+      else if (! n) {
+        // we've got nothing; this can only happen for large (>1KB) packets,
+        // while we're waiting for then 2nd+ part
+        // if we didn't get anything by the limit, give up
+        ++retries;
+        if (retries == MAX_FETCH_RETRIES) {
+          printf("%s: timout waiting for data (got %u, expected %u)%s...\n",
+                 svc->svcname, actual, actual+expected, dmsg);
+          goto close_and_exit;
+        }
+      } else {
+        transferred += n; src += n;
+        actual -= n;
+      }
     }
+#   if 0
+    if (iter != 1) 
+      printf("%s: sent %d bytes, %d iterations, %d retries\n",
+             svc->svcname, transferred, iter, retries);
+#   endif
     dprintf("%s: sent packet, payload size=%u\n",
             svc->svcname, svc->out.buf.response_size);
     // reset the send pointer
@@ -230,70 +258,34 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
   }
 
   // -------------------------------------------------------------------------
-  // if we're in the receive commands
+  // if we're in the receive-commands state
   if (svc->state == SVC_WAIT_CMDS) {
     // check if there's data to receive
     int expected = getSn_RX_RSR(sock);
-    if (! expected)
+    if (! svc->is_tcp)
+      // packets received over UDP have an 8-byte header
+      //   uint16_t src_port, dst_port, len, cksum; // udp_hdr @0, @2, @4, @6
+      // which is NOT returned, but you still see it in RX_RSR
+      expected -= 8;
+    if (expected <= 0)
       return;
-    // packets received over UDP have an 8-byte header, apparently
-    // that's probably {
-    //   uint16_t src_port, dst_port, len, cksum; // udp_hdr @0, @2, @4, @6
-    // }
     if (expected > BUFFER_SIZE) {
       printf("%s: packet too large (size=%d, max=%u)%s...\n",
-              "disconnecting client...\n", expected, BUFFER_SIZE);
+             svc->svcname, expected, BUFFER_SIZE, dmsg);
       goto close_and_exit;
     }
     // for UDP, we also get the IP and port of the sender
     uint32_t cli_ip; uint16_t cli_port;
     // turns out, sometimes a single read is not enough
     // so poll until there's no more data in the socket
-    uint8_t *const dest = (uint8_t*)&svc->in.buf;
-    int actual = 0;
-    int retries = 0;
-    while (actual < expected) {
-      int n;
-      if (svc->is_tcp)
-        n = recv(sock, dest + actual, expected-actual);
-      else
-        n = recvfrom(sock, dest + actual, expected-actual, (uint8_t*)&cli_ip, &cli_port);
-      // if we failed, give up
-      if (n < 0) {
-        printf("%s: receive error%s...\n",
-               svc->svcname, svc->is_tcp ? "; disconnecting client" : "");
-        goto close_and_exit;
-      }
-      // if we got something, see how we're doing
-      if (n > 0) {
-        actual += n;
-        // update `expected'
-        if (actual >= 4)
-          expected = svc->in.buf.payload_size + 8;
-        // overflow can't really happen - bail out if we're good
-        if (actual == expected)
-          break;
-        continue;
-      }
-      // here, we've got nothing; this can only happen for large (>1KB) packets,
-      // while we're waiting for then 2nd+ part
-      // if we didn't get anything by the limit, give up
-      ++retries;
-      if (retries == MAX_FETCH_RETRIES) {
-        printf("%s: timout waiting for data (got %u, expected %u)%s...\n",
-               svc->svcname, actual, expected,
-               svc->is_tcp ? "; disconnecting client" : "");
-        goto close_and_exit;
-      }
-    }
-    if (expected > actual) {
-      printf("%s: flow error (expected=%d, got=%d)%s...\n",
-             svc->svcname, expected, actual,
-             svc->is_tcp ? "; disconnecting client" : "");
-      goto close_and_exit;
-    }
-    // UDP only: if this is a different client from the last one we've seen, say so
-    if (! svc->is_tcp) {
+    uint8_t *dest = (uint8_t*)&svc->in.buf;
+    // get in the header; if we got too small a packet, discard it altogether
+    int n;
+    if (svc->is_tcp)
+      n = recv(sock, dest, 8);
+    else {
+      n = recvfrom(sock, dest, 8, (uint8_t*)&cli_ip, &cli_port);
+      // UDP only: if this is a different client from the last one we've seen, say so
       if ((svc->cli_ip.ip != cli_ip )||(svc->cli_port != cli_port)) {
         svc->cli_ip.ip = cli_ip;
         svc->cli_port = cli_port;
@@ -303,9 +295,52 @@ void dbgsrv_process(int sock, int sstate, struct dbgsvc_s *svc)
                cli_port);
       }
     }
+    if (n < 8) {
+      printf("%s: too short packet, len=%d; discarded%s...\n", svc->svcname, n, dmsg);
+      goto close_and_exit;
+    }
+    dest += 8;
+    int actual = 8;
+    expected = svc->in.buf.payload_size;
     // reboot if the protocol was badly violated
-    if ((svc->in.buf.payload_size > BUFFER_SIZE) || ((svc->in.buf.response_size & ~0x80000000) > BUFFER_SIZE))
+    if ((expected > BUFFER_SIZE) || ((svc->in.buf.response_size & ~0x80000000) > BUFFER_SIZE))
       bad_error();
+    // get in the data
+    int retries = 0, iter = 0;
+    while (expected > 0) {
+      ++iter;
+      if (svc->is_tcp)
+        n = recv(sock, dest, expected);
+      else
+        n = recvfrom(sock, dest, expected, (uint8_t*)&cli_ip, &cli_port);
+      // if we failed, give up
+      if (n < 0) {
+        printf("%s: receive error %d%s...\n",
+               svc->svcname, n, dmsg);
+        goto close_and_exit;
+      }
+      // if we got something, see how we're doing
+      else if (! n) {
+        // we've got nothing; this can only happen for large (>1KB) packets,
+        // while we're waiting for then 2nd+ part
+        // if we didn't get anything by the limit, give up
+        ++retries;
+        if (retries == MAX_FETCH_RETRIES) {
+          printf("%s: timout waiting for data (got %u, expected %u)%s...\n",
+                 svc->svcname, actual, actual+expected, dmsg);
+          goto close_and_exit;
+        }
+      } else {
+        actual += n;
+        dest += n;
+        expected -= n;
+      }
+    }
+#   if 0
+    if (iter != 1) 
+      printf("%s: received %d bytes, %d iterations, %d retries\n",
+             svc->svcname, actual, iter, retries);
+#   endif
     dprintf("%s: received packet, payload size=%u; "
             "expected response of size %s%u\n",
             svc->svcname, 

@@ -738,10 +738,11 @@ void eth_config_update()
 //============================================================================
 
 // socket buffer sizes, TX respectively RX
-// maybe optimize later?
+// alloc 4k for the debug ports, 2k for the firmware update one,
+// 2k for the reminder (currently unused)
 static const uint8_t w5500_buf_sizes[2][8] = {
-    { 2, 2, 2, 2, 2, 2, 2, 2 }, 
-    { 2, 2, 2, 2, 2, 2, 2, 2 }
+    { 4, 4, 2, 1, 1, 1, 1, 1 }, 
+    { 4, 4, 2, 1, 1, 1, 1, 1 }
 };
 
 // reset/initialize the Ethernet chip
