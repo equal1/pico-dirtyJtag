@@ -35,6 +35,7 @@ pio_jtag_init(PIO pio, uint sm, unsigned clkdiv,
   // output on TDI, input on TDO, clock on TCK
   sm_config_set_out_pins(&c, pin_tdi, 1);
   sm_config_set_in_pins(&c, pin_tdo);
+  sm_config_set_in_pin_count(&c, 1);
   sm_config_set_sideset_pins(&c, pin_tck);
   // configure as: shift to left auto push/pull, threshold=nbits
   sm_config_set_out_shift(&c, false, true, 8);

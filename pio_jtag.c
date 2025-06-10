@@ -174,6 +174,9 @@ static void init_jtag_pins(uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tm
   gpio_set_mask((1u << pin_rst));
   // set TMS ans SRST# as outputs
   gpio_set_dir_masked( (1u << pin_tms) | (1u << pin_rst), 0xffffffffu);
+  // set TDO as input
+  gpio_init(pin_tdo);
+  gpio_set_dir(pin_tdo, false);
 }
 
 static void init_a5clk_pin(uint pin)
