@@ -749,15 +749,15 @@ static const uint8_t w5500_buf_sizes[2][8] = {
 int w5500_reset()
 {
   // pulse reset
-  gpio_put(PIN_ETH_RSTn, 0); sleep_ms(1);
-  gpio_put(PIN_ETH_RSTn, 1); sleep_ms(1);
+  gpio_put(PIN_ETH_RSTn, 0); sleep_ms(2);
+  gpio_put(PIN_ETH_RSTn, 1); sleep_ms(2);
   // initialize the chip
   ctlwizchip (CW_RESET_WIZCHIP, 0); 
-  sleep_ms(1);
+  sleep_ms(2);
   ctlwizchip (CW_INIT_WIZCHIP, (void*)w5500_buf_sizes);
-  sleep_ms(1);
+  sleep_ms(2);
   ctlwizchip (CW_RESET_PHY, 0);
-  sleep_ms(1);
+  sleep_ms(2);
   // sanity-check the chip
   eth.have_ethernet = (getVERSIONR() == 0x04) ? 1 : 0;
   return eth.have_ethernet;

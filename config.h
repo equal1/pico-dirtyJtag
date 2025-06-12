@@ -74,7 +74,7 @@
 
 #define ETH_NAME      "W5500"
 // #define FREQ_ETH_KHZ  80000 // seems to high, comms are unreliable
-#define FREQ_ETH_KHZ  10000
+#define FREQ_ETH_KHZ  33000
 #define SPI_ETH       spi0
 #define PIN_ETH_SCK   PIN_SPI0_SCK
 #define PIN_ETH_MOSI  PIN_SPI0_MOSI

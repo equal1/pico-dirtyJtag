@@ -222,8 +222,8 @@ void jtag_set_clk_freq(const pio_jtag_inst_t *jtag, uint freq_khz) {
   // round to nearest
   // do the 256* thing because we want a Q16.8 result
   uint32_t clkdiv = (256*clk_sys_freq_khz + wanted_pio_freq/2 - 1) / wanted_pio_freq;
-  if (clkdiv < 0x200)
-    clkdiv = 0x200;
+  if (clkdiv < 0x100)
+    clkdiv = 0x100;
   else if (clkdiv > 0xffffff)
     clkdiv = 0xffffff;
   djtag_clocks.sys_khz = clk_sys_freq_khz;
@@ -241,8 +241,8 @@ void a5clk_set_freq(const pio_a5clk_inst_t *a5clk, uint freq_khz) {
   // round to nearest
   // do the 256* thing because we want a Q16.8 result
   uint32_t clkdiv = (256*clk_sys_freq_khz + wanted_pio_freq/2 - 1) / wanted_pio_freq;
-  if (clkdiv < 0x200)
-    clkdiv = 0x200;
+  if (clkdiv < 0x100)
+    clkdiv = 0x100;
   else if (clkdiv > 0xffffff)
     clkdiv = 0xffffff;
   djtag_clocks.a5clk_divider = clkdiv;
