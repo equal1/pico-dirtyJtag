@@ -98,6 +98,8 @@ enum CommandIdentifier {
   XCMD_ARM_INIT = 0x27,
   XCMD_ARM_RESUME = 0x28,
   XCMD_ARM_QUERY = 0x29,
+  // random stuff
+  XCMD_ASCIIZ_RD = 0x2A,
 };
 
 enum CommandModifier
@@ -257,7 +259,10 @@ struct djtag_cfg_s {
 #define CAP_BURST   0x00000100
 
 // ARM state tracking
-#define CAP_ARM   0x00000200
+#define CAP_ARM     0x00000200
+
+// ASCIIZ read
+#define CAP_ASCIIZ  0x00000400
 
 //=[ jtagx api ]===============================================================
 
@@ -310,6 +315,10 @@ int jtag_bus_wr(uint32_t addr, uint32_t data);
 int jtag_cpu_rd(uint32_t addr, uint32_t *data);
 int jtag_cpu_wr(uint32_t addr, uint32_t data);
 
+// read an ASCIIZ string; populate a Pascal-style string
+// returns 0 on error/empty string, strlen on success
+int jtag_bus_asciiz_rd(uint32_t addr, uint8_t *out);
+
 // BYPASS_COUNT and GET_IDCODES ignore config
 // IRSCAN, DRSCAN use only config.{ir|dr}.{lead1s|tail1s}
 //   (in particular, IRSCAN ignores config.ir_size)
@@ -337,7 +346,7 @@ int get_arm_state(uint8_t *resp);
   CAP_CONFIG | \
   CAP_SCAN | \
   CAP_ABORT | CAP_DPACC | CAP_APACC | \
-  CAP_BUSACC | CAP_BURST | \
+  CAP_BUSACC | CAP_BURST | CAP_ASCIIZ | \
   CAP_ARM | \
   0)
 

@@ -668,6 +668,8 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
 }
 
 //=[ jtag_bus_rd() ]===========================================================
+//=[ jtag_bus_blockrd() ]======================================================
+//=[ jtag_bus_asciiz_rd() ]====================================================
 //=[ jtag_cpu_rd() ]===========================================================
 
 // issue a bus read, using the AP selected by jcfg.sys_ap
@@ -678,11 +680,17 @@ int jtag_ap_rd(int ap, uint32_t addr, uint32_t *data)
   if ((last.tar[ap] & ~0x3ff) != (addr & ~0x3ff)) {
     // re-write TAR
     int e = jtag_apacc_wr(ap, MEMAP_TAR, addr);
+    // issue an abort if we got WAIT (we already aborted on anything except OK)
+    if (e == JTAG_WAIT)
+      jtag_abort(ABORT_ALL);
     if (e != JTAG_OK)
       return e;
   }
   // perform the read using DAR[(addr&3ff)>>2]
   int e = jtag_apacc_rd(ap, MEMAP_DAR0 | (addr & 0x3fc), data);
+  // issue an abort if we got WAIT
+  if (e == JTAG_WAIT)
+    jtag_abort(ABORT_ALL);
   return e;
 }
 
@@ -707,6 +715,44 @@ int jtag_bus_blockrd(uint32_t addr, unsigned n_words, uint32_t *data)
   return JTAG_OK;
 }
 
+// read an ASCIIZ string; populate a Pascal-style string
+// returns negative on error, strlen on success (can be 0)
+// and deposits the chars, excluding terminating NUL, in out
+int jtag_bus_asciiz_rd(uint32_t addr, uint8_t *out)
+{
+  int n = 0;
+  unsigned n_ign = addr & 3; // bytes to ignore at the start
+  addr &= ~3;
+  // read the first word
+  do {
+    // read a word
+    uint32_t data;
+    int e = jtag_ap_rd(jcfg.sys_ap, addr, &data);
+    // return error, if need be
+    if (e != JTAG_OK)
+      return -e;
+    addr += 4;
+    unsigned n_avl = 4;
+    // read until we hit a NULL
+    while (n_avl) {
+      if (n_ign)
+        --n_ign;
+      else {
+        unsigned c = (data & 0xff);
+        // bail out on the first NUL
+        if (! c)
+          return n;
+        // store the new char
+        *out++ = c; ++n;
+        // bail out upon filling the buffer
+        if (n == 255)
+          return n;
+      }
+      --n_avl; data >>= 8;
+    }
+  } while (1);
+}
+
 // issue a bus read, using the AP selected by jcfg.sys_ap
 // returns the status bits, writes the result to *data
 int jtag_cpu_rd(uint32_t addr, uint32_t *data)
@@ -715,6 +761,7 @@ int jtag_cpu_rd(uint32_t addr, uint32_t *data)
 }
 
 //=[ jtag_bus_wr() ]===========================================================
+//=[ jtag_bus_blockwr() ]======================================================
 //=[ jtag_cpu_wr() ]===========================================================
 
 // issue a bus write, using the AP selected by jcfg.sys_ap
@@ -725,11 +772,17 @@ static int jtag_ap_wr(int ap, uint32_t addr, uint32_t data)
   if ((last.tar[ap] & ~0x3ff) != (addr & ~0x3ff)) {
     // re-write TAR
     int e = jtag_apacc_wr(ap, MEMAP_TAR, addr);
+    // issue an abort if we got WAIT (we already aborted on anything except OK)
+    if (e == JTAG_WAIT)
+      jtag_abort(ABORT_ALL);
     if (e != JTAG_OK)
       return e;
   }
   // perform the read using DAR[(addr&3ff)>>2]
   int e = jtag_apacc_wr(ap, MEMAP_DAR0 | (addr & 0x3fc), data);
+  // issue an abort if we got WAIT (we already aborted on anything except OK)
+  if (e == JTAG_WAIT)
+    jtag_abort(ABORT_ALL);
   return e;
 }
 

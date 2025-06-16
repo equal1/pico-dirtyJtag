@@ -534,6 +534,25 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmd_printf("\t> %d 0x%04X (%X)\n", a0-(m+1), n, p);
       cmdpos += 10;
       break;
+    // read an ASCIIZ string
+    case XCMD_ASCIIZ_RD:
+      // grab the address
+      a0 = GET_WORD_AT(cmdbuf+cmdpos+1);
+      cmd_printf(" %c# @%u BUS_RD_AZ 0x%X\n", buf, cmdpos, a0);
+      // perform the read (directly to respbuf)
+      // send back a single 0 (empty string), single non-zero (JTAG state) or
+      // a pascal string with the result
+      n = jtag_bus_asciiz_rd(a0, respbuf+resppos+1);
+      if (n >= 0) {
+        cmd_printf("\t> (%d) \"%.*s%s\"\n", n, ((n-1)>20)?16:n, respbuf+resppos+1, ((n-1)>20)?"...":"");
+        respbuf[resppos] = n;
+        resppos += 1 + n;
+      } else {
+        cmd_printf("\t> (%d)\n", n);
+        respbuf[resppos++] = -n;
+      }
+      cmdpos += 5;
+      break;
 
     case XCMD_ARM_INIT: {
       // void arm_init(
