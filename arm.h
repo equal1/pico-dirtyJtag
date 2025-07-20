@@ -92,6 +92,27 @@
 #define DBG_DCRDR  0xE000EDF8 // RW: Debug Core Register Data
 #define DBG_DEMCR  0xE000EDFC // RW: Debug Exception Monitor Control
 
+// DWT registers
+#define DWT_CTRL     0xE0001000 // RO: DWT Control
+#define DWT_PCSR     0xE000101C // RO: DWT PC Sample
+#define DWT_COMP(n)  (0xE0001020+(((n)&0xf)<<4)) // RW: DWT Comparator #n at DWT_COMP0+(n*0x10)
+#define DWT_MASK(n)  (0xE0001024+(((n)&0xf)<<4)) // RW: DWT Comparator Mask #n at DWT_MASK0+(n*0x10)
+#define DWT_FN(n)    (0xE0001028+(((n)&0xf)<<4)) // RW: DWT Comparator Function #n at DWT_FN0+(n*0x10)
+
+// BPU registers
+#define BP_CTRL     0xE0002000 // RO: BP Control
+#define BP_COMP(n)  (0xE0002008+(((n)&0xf)<<2)) // RW: BP Comparator #n at BP_COMP0+(n*4)
+
+// ARMv6-M ROM table
+// entries are
+// [31:12] : signed base address offset relative to ROM base (0xE00FF000)
+//     [1] : 1 (32-bit format)
+//     [0] : present (if [31:1]==0: EOL)
+#define ROM_SCS   0xE00FF000 // RO: pointer to SCS @0xE000E000 (expected: 0xFFF0F003)
+#define ROM_DWT   0xE00FF004 // RO: pointer to DWT @0xE0001000 (expected: 0xFFF0200[23])
+#define ROM_BPU   0xE00FF008 // RO: pointer to BPU @0xE0002000 (expected: 0xFFF0300[23])
+#define ROM_END   0xE00FF00C // RO: end of list (expected: 0)
+
 //-[ Debug Halt Control and Status ]-------------------------------------------
 
 // bits on write

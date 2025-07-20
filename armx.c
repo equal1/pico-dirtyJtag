@@ -98,6 +98,8 @@ static struct {
       uint32_t addr;
       uint32_t m0_bit, dbg_bit;
     } reset;
+    int n_watchpoints;
+    int n_breakpoints;
   } cfg;
   // currently available IMC data
   char *imc_data; // buffer
@@ -389,12 +391,14 @@ static int arm_update()
   }
   //---------------------------------------------------------------------------
 check_arm_state:
-  // if the ARM is running, not much left to do
-  if (! (dhcsr & DHCSR_NOT_RUNNING))
+  // if the ARM is running, grab a recent PC sample and we're done
+  if (! (dhcsr & DHCSR_NOT_RUNNING)) {
+    state.arm.pc = get_cpu_reg(DWT_PCSR, "pcsr");
     return 0;
+  }
   //---------------------------------------------------------------------------
-  // in any other state, we need at the very least the PC
-  // - halt ARM first
+  // in any other state, we need to halt the core to fetch the PC
+  // (and potentially other state too)
   if (! (dhcsr & DHCSR_S_HALT)) {
     if (set_dhcsr(dhcsr | DHCSR_C_HALT))
       return -3;
@@ -402,7 +406,6 @@ check_arm_state:
     dhcsr |= DHCSR_C_HALT | DHCSR_S_HALT;
     state.cfg.halted_by_us = 1;
   }
-  // grab the current PC
   state.arm.pc = get_arm_reg(REG_PC, "pc");
   // if the core is sleeping, return (leaving the core halted)
   if (((state.arm.dhcsr & DHCSR_NOT_RUNNING) == DHCSR_S_SLEEP)) {
@@ -616,6 +619,28 @@ void arm_init(
   set_dhcsr(DHCSR_C_HALT);
   // set the core to halt on leaving RESET
   set_demcr(DEMCR_VC_CORERST | DEMCR_VC_HARDERR);
+  // read the ROM table
+  uint32_t dbg_dwt = get_cpu_reg(ROM_DWT, "ROM.DWT");
+  uint32_t dbg_bpu = get_cpu_reg(ROM_BPU, "ROM.BPU");
+  //uint32_t dbg_scs = get_cpu_reg(ROM_SCS, "ROM.SCS");
+  //uint32_t dbg_end = get_cpu_reg(ROM_END, "ROM.END");
+  //printf("debug ROM: SCS=0x%08X DWT=0x%08X BPU=0x%08X END=0x%08X\n", 
+  //       dbg_scs, dbg_dwt, dbg_bpu, dbg_end);
+  if (! (dbg_dwt & 1))
+    state.cfg.n_watchpoints = -1;
+  else {
+    uint32_t dwt_ctrl = get_cpu_reg(DWT_CTRL, "DWT.CTRL");
+    state.cfg.n_watchpoints = dwt_ctrl >> 28;
+    dprintf("  DWT present; CTRL=0x%08X: NUMCOMP=%u\n", dwt_ctrl, dwt_ctrl >> 28);
+  }
+  if (! (dbg_bpu & 1))
+    state.cfg.n_breakpoints = -1;
+  else {
+    uint32_t bp_ctrl = get_cpu_reg(BP_CTRL, "BP.CTRL");
+    state.cfg.n_breakpoints = (bp_ctrl >> 4) & 0xf;
+    dprintf("  BPU present; CTRL=0x%08X: NUM_CODE=%u %sABLED\n", 
+            bp_ctrl, (bp_ctrl>>4)&0xf, (bp_ctrl&1) ? "EN" : "DIS");
+  }
 }
 
 int arm_resume(void)
@@ -730,7 +755,7 @@ int get_arm_state(uint8_t *resp)
       ++n_padding;
     }
     unsigned state_size = 4*2; // systick, dhcsr
-    if (i >= 1)
+    if (i >= 0)
       state_size += 4*1; // add pc
     if (i >= 2)
       state_size += 4*21; // add r0..12, sp, lr, dfsr, psr, msp, psp, icsr, ctrl/primask
