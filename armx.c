@@ -106,6 +106,7 @@ static struct {
   unsigned sz_imc_data; // total capacity
   unsigned n_imc_data; // used capacity
 } state;
+extern struct djtag_cfg_s jcfg;
 
 //=============================================================================
 
@@ -619,7 +620,11 @@ void arm_init(
   set_dhcsr(DHCSR_C_HALT);
   // set the core to halt on leaving RESET
   set_demcr(DEMCR_VC_CORERST | DEMCR_VC_HARDERR);
+# if 0
   // read the ROM table
+  // disable for a7, since addressing the ROM would require bits [19:2] of
+  // HADDR, but only bits [15:2] are actually routed ([31:28]==4'hF, [27:16]
+  // select the tile)
   uint32_t dbg_dwt = get_cpu_reg(ROM_DWT, "ROM.DWT");
   uint32_t dbg_bpu = get_cpu_reg(ROM_BPU, "ROM.BPU");
   //uint32_t dbg_scs = get_cpu_reg(ROM_SCS, "ROM.SCS");
@@ -641,6 +646,7 @@ void arm_init(
     dprintf("  BPU present; CTRL=0x%08X: NUM_CODE=%u %sABLED\n", 
             bp_ctrl, (bp_ctrl>>4)&0xf, (bp_ctrl&1) ? "EN" : "DIS");
   }
+# endif
 }
 
 int arm_resume(void)
@@ -722,8 +728,8 @@ int get_arm_state(uint8_t *resp)
   //   1: sleeping
   // 2/3: lockup/halted
   //   4: exception
-  // if state >= 0, systick and dhcsr are available
-  // if state >= 1, pc is available and the core is halted
+  // if state >= 0, systick, dhcsr and pc are available
+  // if state >= 1, same, but core is halted
   // if state >= 2, all regs are available
   // if state >= 4, the exception state is also available
   int i = arm_update();

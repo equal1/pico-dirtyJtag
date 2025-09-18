@@ -125,7 +125,8 @@ enum SignalIdentifier {
 // the structure that gets passed by GETCLK (defined in pio_jtag.h)
 struct djtag_clk_s;
 
-// configure the target device; takes in the structure
+// configuration the target device
+// for a5, we're only ever talking to one tile
 struct djtag_cfg_s { 
   // for xRSCAN
   struct {
@@ -141,7 +142,13 @@ struct djtag_cfg_s {
   uint8_t armcmd_xcycles;
   // for fast accesses - index of the sys and cpu APs
   uint8_t sys_ap, cpu_ap;
+  union {
+    // end of alpha5 structure
+    uint32_t __legacy_structure_end;
+    unsigned dsubase;
+  };
 };
+#define A5_CONFIG_SIZE ((uint32_t)(&(((struct djtag_cfg_s*)0)->__legacy_structure_end)))
 
 // capabilities: available commands
 
@@ -283,7 +290,7 @@ unsigned jtag_get_idcodes(uint32_t *idcode);
 
 // load the jcfg structure from the client
 //   returns the size of the jtag structure
-unsigned jtag_set_config(const void *cfg);
+unsigned jtag_set_config(const void *cfg, unsigned avl_bytes);
 
 // perform a JTAG scan
 // this is very similar to CMD_XFER, except

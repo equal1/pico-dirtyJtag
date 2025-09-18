@@ -24,7 +24,7 @@
 #endif
 
 // default settings
-static struct djtag_cfg_s jcfg = {
+struct djtag_cfg_s jcfg = {
   .ir = { .lead1s = 0, .tail1s = 0 },
   .dr = { .lead1s = 0, .tail1s = 0 },
   .abort = 0b1000, // 0x8
@@ -33,7 +33,8 @@ static struct djtag_cfg_s jcfg = {
   .ir_size = 4,
   .armcmd_xcycles = 8, // cycles after issuing a read/write with APACC, before checking the result
   .cpu_ap = 0, // these get set via XCMD_CONFIG,
-  .sys_ap = 0  // or whenever PINCFG changes the value of TILESEL
+  .sys_ap = 0,  // or whenever PINCFG changes the value of TILESEL
+  .dsubase = 0xe0000000 // default for a5
 };
 
 // most recent known state
@@ -322,6 +323,10 @@ unsigned jtag_do_bypass()
 
 //-[ jtag_get_idcodes() ]------------------------------------------------------
 
+static uint32_t last_seen_idcode = 0xffffffff;
+#define IDCODE_A5 
+#define IDCODE_A7 
+
 // get the IDCODEs in the chain
 //   returns 0 if TDO is stuck (at zero OR one), or the number of devices (scans ups
 //   to 16 (=512/32) devices)
@@ -340,6 +345,8 @@ unsigned jtag_get_idcodes(uint32_t *idcode)
   dprintf ("jtag_do_scan(0, 512, NULL, jtag_in) # flush out the IDCODE chain\n");
   jtag_do_scan(0, 512, NULL, jtag_in);
 
+  last_seen_idcode = -1;
+
   // if the first ID is 0x00000000, then the chain is disconnected
   if (! *(uint32_t*)jtag_in)
     return 0;
@@ -355,22 +362,31 @@ unsigned jtag_get_idcodes(uint32_t *idcode)
       *idcode++ = crt_id;
     ++ndev;
   }
+  if (ndev == 1)
+    last_seen_idcode = *(uint32_t*)jtag_in;
   return ndev;
 }
 
 //=[ jtag_set_config() ]=======================================================
 
 // load the jcfg structure from the client
-
 // returns the size of the jtag structure
-unsigned jtag_set_config(const void *cfg)
+unsigned jtag_set_config(const void *cfg, unsigned avl_bytes)
 {
-  memcpy(&jcfg, cfg, sizeof(jcfg));
+  unsigned n = avl_bytes;
+  if (n > sizeof(jcfg))
+    n = sizeof(jcfg);
+  memcpy(&jcfg, cfg, n);
   // mask the commands to the IR size, just in case
   jcfg.abort &= (1 << jcfg.ir_size) - 1;
   jcfg.apacc &= (1 << jcfg.ir_size) - 1;
   jcfg.dpacc &= (1 << jcfg.ir_size) - 1;
-  return sizeof(jcfg);
+  // alpha5?
+  if ((n == A5_CONFIG_SIZE)/* || (jcfg.sys_ap != jcfg.cpu_ap)*/) {
+    // set the DSU address
+    jcfg.dsubase = 0xe0000000;
+  }
+  return n;
 }
 
 /*****************************************************************************
@@ -753,11 +769,11 @@ int jtag_bus_asciiz_rd(uint32_t addr, uint8_t *out)
   } while (1);
 }
 
-// issue a bus read, using the AP selected by jcfg.sys_ap
+// issue a bus read, using the AP selected by jcfg.sys_ap to the DSU selected by jcfg.dsubase
 // returns the status bits, writes the result to *data
 int jtag_cpu_rd(uint32_t addr, uint32_t *data)
 {
-  return jtag_ap_rd(jcfg.cpu_ap, addr, data);
+  return jtag_ap_rd(jcfg.cpu_ap, jcfg.dsubase|addr, data);
 }
 
 //=[ jtag_bus_wr() ]===========================================================
@@ -787,7 +803,7 @@ static int jtag_ap_wr(int ap, uint32_t addr, uint32_t data)
 }
 
 // issue a bus read, using the AP selected by jcfg.sys_ap
-// returns the status bits, writes the result to *data
+// returns the status bits
 int jtag_bus_wr(uint32_t addr, uint32_t data)
 {
   return jtag_ap_wr(jcfg.sys_ap, addr, data);
@@ -807,9 +823,9 @@ int jtag_bus_blockwr(uint32_t addr, unsigned n_words, const uint32_t *data)
   return JTAG_OK;
 }
 
-// issue a bus read, using the AP selected by jcfg.sys_ap
-// returns the status bits, writes the result to *data
+// issue a bus write, using the AP selected by jcfg.cpu_ap to the DSU selected by jcfg.dsubase
+// returns the status bits
 int jtag_cpu_wr(uint32_t addr, uint32_t data)
 {
-  return jtag_ap_wr(jcfg.cpu_ap, addr, data);
+  return jtag_ap_wr(jcfg.cpu_ap, jcfg.dsubase|addr, data);
 }

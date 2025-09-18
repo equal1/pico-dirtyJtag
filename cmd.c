@@ -43,6 +43,8 @@
 #define cmd_printf(...) ((void)(__VA_ARGS__))
 //#define cmd_printf(...) (printf(__VA_ARGS__))
 
+extern struct djtag_cfg_s jcfg;
+
 unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, unsigned cmdsz, uint8_t *respbuf)
 {
   unsigned cmdpos = 0, resppos = 0;
@@ -253,7 +255,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
     // configure jtagx mode
     case XCMD_CONFIG:
       cmd_printf(" %c# @%u XCMD_CONFIG\n", buf, cmdpos);
-      cmdpos += 1 + jtag_set_config(cmdbuf + cmdpos + 1);
+      cmdpos += 1 + jtag_set_config(cmdbuf + cmdpos + 1, cmdsz - (cmdpos + 1));
       break;
 
     // perform scans
@@ -383,7 +385,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
     case XCMD_CPU_RD:
       // grab the 16-bit address
       a0 = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
-      a0 |= 0xe0000000; // SCB_BASE
+      a0 |= jcfg.dsubase; // SCB_BASE
       cmd_printf(" %c# @%u CPU_RD 0x%X\n", buf, cmdpos, a0);
       // perform the read
       n = jtag_cpu_rd(a0, (uint32_t*)&m);
@@ -418,7 +420,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // grab the address
       a0 = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
       a1 = GET_WORD_AT(cmdbuf+cmdpos+3);
-      a0 |= 0xe0000000; // SCB_BASE
+      a0 |= jcfg.dsubase; // SCB_BASE
       cmd_printf(" %c# @%u CPU_WR 0x%X 0x%X\n", buf, cmdpos, a0, a1);
       // perform the write
       n = jtag_cpu_wr(a0, a1);
@@ -435,7 +437,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // grab the address
       a0 = GET_HWORD_AT(cmdbuf+cmdpos+1) & ~3;
       a1 = GET_WORD_AT(cmdbuf+cmdpos+3);
-      a0 |= 0xe0000000; // SCB_BASE
+      a0 |= jcfg.dsubase; // SCB_BASE
       cmd_printf(" %c# @%u CPU_WRRD 0x%X 0x%X\n", buf, cmdpos, a0, a1);
       // perform the write
       m = jtag_cpu_wr(a0, a1);

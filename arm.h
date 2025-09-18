@@ -73,45 +73,48 @@
 #define ICSR_VECTACTIVE_MASK  0x1ff
 
 // SysTick registers
-#define SYST_CSR    0xE000E010 // RW: SysTick Control and Status
-#define SYST_RVR    0xE000E014 // RW: SysTick Reload Value
-#define SYST_CVR    0xE000E018 // RW: SysTick Current Value
-#define SYST_CALIB  0xE000E01C // RW: SysTick Calibration Value
+#define SYST_CSR    0xE010 // RW: SysTick Control and Status
+#define SYST_RVR    0xE014 // RW: SysTick Reload Value
+#define SYST_CVR    0xE018 // RW: SysTick Current Value
+#define SYST_CALIB  0xE01C // RW: SysTick Calibration Value
 
 // Nested Vector Interrupt Controller registers
-#define NVIC_ISER  0xE000E100 // RW: NVIC Interrupt Set-Enable
-#define NVIC_ICER  0xE000E180 // RW: NVIC Interrupt Clear-Enable
-#define NVIC_ISPR  0xE000E200 // RW: NVIC Interrupt Set-Pending
-#define NVIC_ICPR  0xE000E280 // RW: NVIC Interrupt Clear-Pending
-#define NVIC_IPR0  0xE000E400 // RW: NVIC Interrupt Priority #n at IPR0+((n/4)*4), bits 7+(n%4)*8:6+(n%4)*8
+#define NVIC_ISER  0xE100 // RW: NVIC Interrupt Set-Enable
+#define NVIC_ICER  0xE180 // RW: NVIC Interrupt Clear-Enable
+#define NVIC_ISPR  0xE200 // RW: NVIC Interrupt Set-Pending
+#define NVIC_ICPR  0xE280 // RW: NVIC Interrupt Clear-Pending
+#define NVIC_IPR0  0xE400 // RW: NVIC Interrupt Priority #n at IPR0+((n/4)*4), bits 7+(n%4)*8:6+(n%4)*8
 
 // Debug registers
-#define DBG_DFSR   0xE000ED30 // RW: Debug Fault Status
-#define DBG_DHCSR  0xE000EDF0 // RW: Debug Halting Control/Status
-#define DBG_DCRSR  0xE000EDF4 // WO: Debug Core Register Selector
-#define DBG_DCRDR  0xE000EDF8 // RW: Debug Core Register Data
-#define DBG_DEMCR  0xE000EDFC // RW: Debug Exception Monitor Control
+#define DBG_DFSR   0xED30 // RW: Debug Fault Status
+#define DBG_DHCSR  0xEDF0 // RW: Debug Halting Control/Status
+#define DBG_DCRSR  0xEDF4 // WO: Debug Core Register Selector
+#define DBG_DCRDR  0xEDF8 // RW: Debug Core Register Data
+#define DBG_DEMCR  0xEDFC // RW: Debug Exception Monitor Control
 
 // DWT registers
-#define DWT_CTRL     0xE0001000 // RO: DWT Control
-#define DWT_PCSR     0xE000101C // RO: DWT PC Sample
-#define DWT_COMP(n)  (0xE0001020+(((n)&0xf)<<4)) // RW: DWT Comparator #n at DWT_COMP0+(n*0x10)
-#define DWT_MASK(n)  (0xE0001024+(((n)&0xf)<<4)) // RW: DWT Comparator Mask #n at DWT_MASK0+(n*0x10)
-#define DWT_FN(n)    (0xE0001028+(((n)&0xf)<<4)) // RW: DWT Comparator Function #n at DWT_FN0+(n*0x10)
+#define DWT_CTRL     0x1000 // RO: DWT Control
+#define DWT_PCSR     0x101C // RO: DWT PC Sample
+#define DWT_COMP(n)  (0x1020+(((n)&0xf)<<4)) // RW: DWT Comparator #n at DWT_COMP0+(n*0x10)
+#define DWT_MASK(n)  (0x1024+(((n)&0xf)<<4)) // RW: DWT Comparator Mask #n at DWT_MASK0+(n*0x10)
+#define DWT_FN(n)    (0x1028+(((n)&0xf)<<4)) // RW: DWT Comparator Function #n at DWT_FN0+(n*0x10)
 
 // BPU registers
-#define BP_CTRL     0xE0002000 // RO: BP Control
-#define BP_COMP(n)  (0xE0002008+(((n)&0xf)<<2)) // RW: BP Comparator #n at BP_COMP0+(n*4)
+#define BP_CTRL     0x2000 // RO: BP Control
+#define BP_COMP(n)  (0x2008+(((n)&0xf)<<2)) // RW: BP Comparator #n at BP_COMP0+(n*4)
 
 // ARMv6-M ROM table
 // entries are
 // [31:12] : signed base address offset relative to ROM base (0xE00FF000)
 //     [1] : 1 (32-bit format)
 //     [0] : present (if [31:1]==0: EOL)
-#define ROM_SCS   0xE00FF000 // RO: pointer to SCS @0xE000E000 (expected: 0xFFF0F003)
-#define ROM_DWT   0xE00FF004 // RO: pointer to DWT @0xE0001000 (expected: 0xFFF0200[23])
-#define ROM_BPU   0xE00FF008 // RO: pointer to BPU @0xE0002000 (expected: 0xFFF0300[23])
-#define ROM_END   0xE00FF00C // RO: end of list (expected: 0)
+// note: we can't really read these on alpha7, since
+//   HADDR[31:28] is 4'hF (selects DSU space)
+//   HADDR[27:16] selectes the tile (12'h000..003 for tile 0..3, 12'hFFF for top CPU)
+#define ROM_SCS   0xFF000 // RO: pointer to SCS @0xE000E000 (expected: 0xFFF0F003)
+#define ROM_DWT   0xFF004 // RO: pointer to DWT @0xE0001000 (expected: 0xFFF0200[23])
+#define ROM_BPU   0xFF008 // RO: pointer to BPU @0xE0002000 (expected: 0xFFF0300[23])
+#define ROM_END   0xFF00C // RO: end of list (expected: 0)
 
 //-[ Debug Halt Control and Status ]-------------------------------------------
 
