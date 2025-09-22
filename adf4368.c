@@ -11,6 +11,12 @@
 
 //#define DEBUG
 
+#ifdef DEBUG
+#define dprintf(...) (printf(__VA_ARGS__))
+#else
+#define dprintf(...) ((void)((__VA_ARGS__)))
+#endif
+
 int fpll_spi_speed, fpll_chip_version;
 
 //=[ detect/initialize the fractional PLL ]===================================
@@ -40,6 +46,9 @@ void _check_fpll_state(const char *fn)
 // sets fpll_spi_speed to 0, if device not present
 void fpll_init()
 {
+  dprintf("fpll_init() spi%u %uKHz, {SS#:%u SCK:%u MOSI:%u MISO:%u}\n", 
+          (SPI_FPLL==spi0)?0:1, FREQ_FPLL_KHZ,
+          PIN_FPLL_SSn, PIN_FPLL_SCK, PIN_FPLL_MOSI, PIN_FPLL_MISO);
   // configure CS#
   gpio_init(PIN_FPLL_SSn);
   gpio_put(PIN_FPLL_SSn, 1); // initially de-selected
@@ -55,11 +64,12 @@ void fpll_init()
   gpio_set_function(PIN_FPLL_MISO, GPIO_FUNC_SPI);
   //bi_decl(bi_3pins_with_func(PIN_FPLL_MISO, PIN_FPLL_MOSI, PIN_FPLL_SCK, GPIO_FUNC_SPI)); // technically this is handled by a5pins (as "a5 spi.*")
   fpll_spi_speed = spi_get_baudrate(SPI_FPLL);
-  fpll_chip_version = -1;
+  dprintf("  actual frequency: %u.%03uKHz\n", fpll_spi_speed/1000, fpll_spi_speed%1000);
+  fpll_chip_version = 0;
 
   // perform detection
   if ((fpll_chip_version = fpll_probe()) < 0) {
-    //printf("FPLL does NOT work at %u.%uMHz!\n", (fpll_spi_speed+500)/1000000, ((fpll_spi_speed+500)%1000000)/1000);
+    dprintf("fPLL does NOT work at %u.%03uMHz!\n", (fpll_spi_speed+500)/1000000, ((fpll_spi_speed+500)%1000000)/1000);
     fpll_spi_speed = 0;
     return;
   }
@@ -75,19 +85,40 @@ int fpll_probe()
   do_fpll_set(0, FPLL_R00_SOFT_RESET); // soft reset
   do_fpll_set(0, FPLL_R00_MSB_FIRST|FPLL_R00_ADDR_AUTODEC|FPLL_R00_MODE_SPI); // enable SPI mode
   // check that the initial write succeeded
-  if (do_fpll_get(0x00) != (FPLL_R00_MSB_FIRST|FPLL_R00_ADDR_AUTODEC|FPLL_R00_MODE_SPI))
+  int c = do_fpll_get(0x00);
+  if (c != (FPLL_R00_MSB_FIRST|FPLL_R00_ADDR_AUTODEC|FPLL_R00_MODE_SPI)) {
+    dprintf("  r00: should be 0x%02X (FPLL_R00_MSB_FIRST|FPLL_R00_ADDR_AUTODEC|FPLL_R00_MODE_SPI), is 0x%02X\n",
+            FPLL_R00_MSB_FIRST|FPLL_R00_ADDR_AUTODEC|FPLL_R00_MODE_SPI, c);
     return -1;
+  }
   // check versions
-  if ((do_fpll_get(0x03) != FPLL_R03_CHIP_TYPE_VAL) || // chip_type: 0x06
-      (do_fpll_get(0x05) != FPLL_R05_PROD_ID_HI_VAL) || (do_fpll_get(0x04) != FPLL_R04_PROD_ID_LO_VAL) || // prod_id: 0x0007
-      (do_fpll_get(0x06) != (FPLL_R06_PROD_GRADE_VAL|FPLL_R06_DEV_REVISION_VAL)) || // r06: 0x00
-      (do_fpll_get(0x0B) != FPLL_R0B_SPI_REVISION_VAL) || // spi_version: 0x01
-      (do_fpll_get(0x0D) != FPLL_R0D_VEN_ID_HI_VAL) || (do_fpll_get(0x0C) != FPLL_R0C_VEN_ID_LO_VAL)) // ven_id: 0x0456
+  unsigned char chip_type = do_fpll_get(0x03);
+  unsigned short prod_id = (do_fpll_get(0x05) << 8) | do_fpll_get(0x04);
+  unsigned char revision = do_fpll_get(0x06);
+  unsigned char spi_version = do_fpll_get(0x0B);
+  unsigned short ven_id = (do_fpll_get(0x0D) << 8) | do_fpll_get(0x0C);
+  if ((chip_type != FPLL_R03_CHIP_TYPE_VAL) || // chip_type: 0x06
+      (prod_id != ((FPLL_R05_PROD_ID_HI_VAL << 8) | FPLL_R04_PROD_ID_LO_VAL)) || // prod_id: 0x0007
+      (revision != (FPLL_R06_PROD_GRADE_VAL|FPLL_R06_DEV_REVISION_VAL)) || // r06: 0x00
+      (spi_version != FPLL_R0B_SPI_REVISION_VAL) || // spi_version: 0x01
+      (ven_id != ((FPLL_R0D_VEN_ID_HI_VAL << 8) | FPLL_R0C_VEN_ID_LO_VAL))) // ven_id: 0x0456
   {
+    dprintf("  bad fPLL values\n"
+            "            vend_id prod_id chip_type revision spi_version\n"
+            "  expected:  0x%04X  0x%04X      0x%02X     0x%02X        0x%02X\n"
+            "    actual:  0x%04X  0x%04X      0x%02X     0x%02X        0x%02X\n",
+            (FPLL_R0D_VEN_ID_HI_VAL << 8) | FPLL_R0C_VEN_ID_LO_VAL,
+            (FPLL_R05_PROD_ID_HI_VAL << 8) | FPLL_R04_PROD_ID_LO_VAL,
+            FPLL_R03_CHIP_TYPE_VAL,
+            FPLL_R06_PROD_GRADE_VAL|FPLL_R06_DEV_REVISION_VAL,
+            FPLL_R0B_SPI_REVISION_VAL,
+            ven_id, prod_id, chip_type, revision, spi_version);
     return -2;
   }
   // let's assume the chip is there, and return the version
-  return do_fpll_get(0x64);
+  unsigned char ver = do_fpll_get(0x64);
+  dprintf("  fPLL chip version: 0x%02X\n", ver);
+  return (signed char)ver;
 }
 
 //=[ re-configure the ADF4368 SPI rate ]======================================

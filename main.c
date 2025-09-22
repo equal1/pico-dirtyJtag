@@ -21,6 +21,7 @@
 #include "config.h"
 
 //#define DEBUG
+//#define DEBUG_FPLL
 
 #ifdef DEBUG
 #define dprintf(...) printf(__VA_ARGS__)
@@ -116,9 +117,6 @@ int main()
 # ifdef ENABLE_SERIAL_TTY
   stdio_uart_init_full(UART_DBG, 115200, PIN_DBGTX, -1);
 # endif
-# ifdef ENABLE_USB_TTY
-  stdio_usb_init();
-# endif
   // configure the signals directly connected to the Pico
   djtag_init();
   // get the Pico's serial ID
@@ -128,6 +126,10 @@ int main()
   board_id = (board_id >> 8) | (board_id << 56);
   // configure USB and the Ethernet chip (if present)
   usb_init(board_id);
+# ifdef ENABLE_USB_TTY
+  stdio_usb_init();
+  int usb_dbg_connected = 0;
+# endif
   eth_init(board_id);
   // configure the IO expander (if present) and the signals connected to it
   iox_init();
@@ -162,6 +164,25 @@ int main()
 
   multicore_launch_core1(core1_entry);
   while (1) {
+#   ifdef ENABLE_USB_TTY
+    if (! usb_dbg_connected) {
+      if (tud_cdc_connected()) {
+        printf("Debug console connected.\n");
+        printf("----\n%s----\n", whoami);
+        usb_dbg_connected = 1;
+#       ifdef DEBUG_FPLL
+        fpll_init();
+#       endif
+      }
+    }
+    if (usb_dbg_connected) {
+      if (! tud_cdc_connected()) {
+        printf("Debug console disconnected.\n");
+        usb_dbg_connected = 0;
+      }
+    }
+#   endif
+    // if we just connected the USB debug
     // see if we have anything incoming
     if (usbbuf.state < READY_TO_EXECUTE)
       usb_rx_task();
@@ -503,7 +524,7 @@ void whoami_init()
                  (SPI_FPLL == spi0)?'0':'1', f / 1000, f % 1000, PIN_FPLL_SSn,
                  fpll_chip_version);
   // print the Ethernet config
-  if (board_has_ethernet ()) {
+  if (board_has_ethernet()) {
     p += sprintf(p, "Ethernet: %s, spi%c@%s, SS#@GP%u; MAC address %s, hostname %s\n",
                  ethstr(ETHSTR_CHIP), (SPI_ETH == spi0)?'0':'1', ethstr(ETHSTR_SPIFREQ), PIN_ETH_CSn,
                  ethstr(ETHSTR_MAC), ethstr(ETHSTR_HOSTNAME));
