@@ -14,6 +14,7 @@
 #include "git.h"
 #include "a5pins.h"
 #include "adc.h"
+#include "adf4368.h"
 #include "ethernet.h"
 #include "misc.h"
 
@@ -100,7 +101,7 @@ static const char *location_of(void *ptr);
 
 // initialize the whoami description
 static uint64_t board_id;
-static void whoami_init();
+void whoami_init();
 
 // in usb.c (here, 'cause we can't justify an usb.h just for this)
 int usb_init(uint64_t);
@@ -135,6 +136,8 @@ int main()
   // configure the ADC (if present)
   adc_busy = 0; eth_busy = 0;
   adc_init();
+  // configure the fPLL (if present)
+  fpll_init();
   // generate the whoami description
   whoami_init();
 
@@ -455,6 +458,14 @@ void whoami_init()
   char *p = whoami;
   ipconfig_ptr = 0;
   unsigned sysclk_khz = (clock_get_hz(clk_sys) + 500)/ 1000;
+  unsigned caps = IMPLEMENTED_CAPS;
+  // there's no specific API for the IO expander
+  //if (iox_spi_speed < 500)
+  //  caps &= ~CAP_IOX;
+  if (adc_spi_speed < 500)
+    caps &= ~CAP_ADC;
+  if (fpll_spi_speed < 500)
+    caps &= ~CAP_FPLL;
   // print the version
   p += sprintf(p, "equal1 JTAG (%s, %s%s %s) "
 #   ifdef ENABLE_USB_TTY
@@ -463,7 +474,7 @@ void whoami_init()
                "caps=0x%08X\n",
                git_Branch, git_Describe, git_AnyUncommittedChanges?"(dirty)":"",
                 git_Remote,
-               IMPLEMENTED_CAPS);
+               caps);
   // print what we're running on
   p += sprintf(p, "  running from %s on %s (%s@%u.%uMHz), host board %s\n",
                location_of(main),
@@ -485,6 +496,12 @@ void whoami_init()
     p += sprintf(p, "ADC: " ADC_NAME ", spi%c@%u.%03uMHz, SS#@GP%u; device address %c\n",
                  (SPI_ADC == spi0)?'0':'1', f / 1000, f % 1000, PIN_ADC_SSn,
                  '0'+adc_addr);
+  // print the fPLL config
+  f = (fpll_spi_speed + 500) / 1000;
+  if ((f > 0) && (fpll_chip_version >= 0))
+    p += sprintf(p, "fPLL: " FPLL_NAME ", spi%c@%u.%03uMHz, SS#@GP%u; chip version: 0x%02X\n",
+                 (SPI_FPLL == spi0)?'0':'1', f / 1000, f % 1000, PIN_FPLL_SSn,
+                 fpll_chip_version);
   // print the Ethernet config
   if (board_has_ethernet ()) {
     p += sprintf(p, "Ethernet: %s, spi%c@%s, SS#@GP%u; MAC address %s, hostname %s\n",

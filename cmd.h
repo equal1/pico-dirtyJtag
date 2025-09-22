@@ -100,6 +100,9 @@ enum CommandIdentifier {
   XCMD_ARM_QUERY = 0x29,
   // random stuff
   XCMD_ASCIIZ_RD = 0x2A,
+  // fPLL commands
+  CMD_FPLL_SETBAUD = 0x2B,
+  CMD_FPLL_WRRD = 0x2C,
 };
 
 enum CommandModifier
@@ -271,6 +274,12 @@ struct djtag_cfg_s {
 // ASCIIZ read
 #define CAP_ASCIIZ  0x00000400
 
+// 3464R ADC API
+#define CAP_ADC     0x00000800
+
+// ADF4368 fPLL API
+#define CAP_FPLL    0x00001000
+
 //=[ jtagx api ]===============================================================
 
 // set default CPU/SYS APs based on what TILESEL points 
@@ -355,6 +364,7 @@ int get_arm_state(uint8_t *resp);
   CAP_ABORT | CAP_DPACC | CAP_APACC | \
   CAP_BUSACC | CAP_BURST | CAP_ASCIIZ | \
   CAP_ARM | \
+  CAP_ADC | CAP_FPLL | \
   0)
 
 // CAP_SCAN: IRSCAN, DRSCAN implemented

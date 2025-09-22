@@ -40,6 +40,7 @@ add_executable(dirtyJtag
 		pio_jtag.c
 		a5pins.c
 		adc.c
+		adf4368.c
 		utils.c
 		jtagx.c
 		armx.c

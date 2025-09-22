@@ -110,13 +110,13 @@
 
 // ADF4368 SPI frequency is 10KHz when breadboarded
 // (initial location; for a5, no sample boards export the SPI signals)
-#define FG_NAME     "ADF4368"
-#define FREQ_FG_KHZ 10
-#define SPI_FG      spi1
-#define PIN_FG_SCK  PIN_SPI1_SCK
-#define PIN_FG_MOSI PIN_SPI1_MOSI
-#define PIN_FG_MISO PIN_SPI1_MISO
-#define PIN_FG_SSn  13 // GP13, header.17
+#define FPLL_NAME     "ADF4368"
+#define FREQ_FPLL_KHZ 10
+#define SPI_FPLL      spi1
+#define PIN_FPLL_SCK  PIN_SPI1_SCK
+#define PIN_FPLL_MOSI PIN_SPI1_MOSI
+#define PIN_FPLL_MISO PIN_SPI1_MISO
+#define PIN_FPLL_SSn  13 // GP13, header.17
 
 // other pins on Pico
 #define PIN_A5_SCANEN  6  // GP6,  header.9

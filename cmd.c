@@ -37,6 +37,7 @@
 #include "pio_jtag.h"
 #include "jtag.pio.h"
 #include "adc.h"
+#include "adf4368.h"
 #include "utils.h"
 #include "cmd.h"
 
@@ -104,15 +105,27 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       break;
 
     case CMD_FREQ:
-      cmd_printf(" %c# @%u CMD_FREQ\n", buf, cmdpos);
-      jtag_set_clk_freq(jtag, ((unsigned)cmdbuf[cmdpos+1] << 8) | cmdbuf[cmdpos+2]);
+      // support values above 64K by passing 0 as the 16-bit value
+      n = m = ((unsigned)cmdbuf[cmdpos+1] << 8) | cmdbuf[cmdpos+2];
+      if (! n) {
+        n = GET_WORD_AT(cmdbuf+cmdpos+3);
+        cmdpos += 4;
+      }
+      cmd_printf(" %c# @%u CMD_FREQ%s %u\n", buf, cmdpos, m?"":"X", n);
+      jtag_set_clk_freq(jtag, n);
       cmdpos += 3;
       break;
 
     case CMD_A5FREQ:
-      cmd_printf(" %c# @%u CMD_A5FREQ\n", buf, cmdpos);
+      // support values above 64K by passing 0 as the 16-bit value
+      n = m = ((unsigned)cmdbuf[cmdpos+1] << 8) | cmdbuf[cmdpos+2];
+      if (! n) {
+        n = GET_WORD_AT(cmdbuf+cmdpos+3);
+        cmdpos += 4;
+      }
       extern pio_a5clk_inst_t a5clk;
-      a5clk_set_freq(&a5clk, ((unsigned)cmdbuf[cmdpos+1] << 8) | cmdbuf[cmdpos+2]);
+      cmd_printf(" %c# @%u CMD_A5FREQ%s %u\n", buf, cmdpos, m?"":"X", n);
+      a5clk_set_freq(&a5clk, n);
       cmdpos += 3;
       break;
 
@@ -700,6 +713,25 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       ++cmdpos;
       break;
 
+    // fPLL_setBaud(int f_khz) -> int
+    case CMD_FPLL_SETBAUD:
+      cfg = GET_WORD_AT(cmdbuf+cmdpos+1);
+      cmd_printf(" %c# @%u FPLL_SETBAUD %uKHz\n", buf, cmdpos, cfg);
+      cfg = do_fpll_config(cfg);
+      cmd_printf("\t> %d\n", cfg);
+      SET_WORD_AT(respbuf+resppos, cfg);
+      resppos += sizeof(uint32_t);
+      break;
+    // fPLL_setBaud(uint8 n, uint8[n] data) -> uint8 n, uint8[n] 
+    case CMD_FPLL_WRRD:
+      n = cmdbuf[cmdpos+1];
+      n = do_fpll_wrrd(cmdbuf + cmdpos + 2, respbuf + resppos + 1, 1+n) - 1;
+      if (n < 0)
+        n = 0;
+      respbuf[resppos++] = n;
+      resppos += n;
+      break;
+
     default:
       // invalid command: reboot
       // also: print the entire command byte, not just cmd[6:0]
@@ -731,10 +763,10 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
     cmd_printf(" :" );
     int i;
     if (resppos <= 8) {
-      for (i = 0; i < resppos; ++i )
+      for (i = 0; i < resppos; ++i)
         cmd_printf(" %02X", respbuf[i]);
     } else {
-      for (i = 0; i < 4; ++i )
+      for (i = 0; i < 4; ++i)
         cmd_printf(" %02X", respbuf[i]);
       cmd_printf (" ...");
       for (i = resppos - 4; i < resppos; ++i)
