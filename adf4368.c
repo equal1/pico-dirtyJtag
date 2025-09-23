@@ -116,7 +116,7 @@ int fpll_probe()
     return -2;
   }
   // let's assume the chip is there, and return the version
-  unsigned char ver = do_fpll_get(0x64);
+  unsigned char ver = do_fpll_get(0x63);
   dprintf("  fPLL chip version: 0x%02X\n", ver);
   return (signed char)ver;
 }

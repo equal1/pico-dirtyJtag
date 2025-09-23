@@ -45,6 +45,17 @@ const char *djtag_whoami()
   return whoami;
 }
 
+// reboot the pico in bootloader mode if we crashed early
+static int boot_successful = 0;
+int64_t reboot_on_failed_boot(alarm_id_t id, void *user_data) {
+  if (! boot_successful) {
+    //printf("System failed to initialize in 5s - rebooting to bootloader...\n");
+    fatal_error();
+  }
+  printf("bootchk: system initialized successfully.\n");
+  return 0;
+}
+
 void djtag_init()
 {
   // declare and initialize the pins on the Pico
@@ -111,6 +122,11 @@ int usb_init(uint64_t);
 
 int main()
 {
+  // before we do anything at all - set an alarm to reboot to bootloader in 5s,
+  // unless we successfully got past the initialization stage
+  boot_successful = 0;
+  add_alarm_in_ms(5000, reboot_on_failed_boot, NULL, true);
+  // now we can get busy...
   board_init(); 
   // configure the LED and the debug output
   led_init(PIN_LED);
@@ -168,7 +184,8 @@ int main()
     if (! usb_dbg_connected) {
       if (tud_cdc_connected()) {
         printf("Debug console connected.\n");
-        printf("----\n%s----\n", whoami);
+        printf("----\n%s%s----\n", whoami,
+          (whoami[strlen(whoami)-1]=='\n')?"":"\n");
         usb_dbg_connected = 1;
 #       ifdef DEBUG_FPLL
         fpll_init();
@@ -215,6 +232,8 @@ int main()
 // - send ID of buffer that executed
 
 void core1_entry() {
+  // if - and only if - we know the chip got initialized successfully
+  boot_successful = 1;
   while (1) {
     buffer_t *crtbuf = (buffer_t*)multicore_fifo_pop_blocking();
     assert (crtbuf->state == EXECUTING);
