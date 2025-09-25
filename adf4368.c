@@ -131,10 +131,11 @@ int do_fpll_config(unsigned freq_khz)
   // set the new frequency
   int crt_spi_freq = fpll_spi_speed;
   spi_set_baudrate(SPI_FPLL, freq_khz * 1000);
+  // need to set this here, lest the probe restores the old frequency
+  fpll_spi_speed = fpll_spi_speed = spi_get_baudrate(SPI_FPLL);
   // make sure the chip's still there
   int t = fpll_probe();
   if (t == fpll_chip_version) {
-    fpll_spi_speed = spi_get_baudrate(SPI_FPLL);
     // re-generate the WHOAMI info
     void whoami_init();
     whoami_init();
@@ -142,6 +143,7 @@ int do_fpll_config(unsigned freq_khz)
   }
   // no joy - return to previous settings
   spi_set_baudrate(SPI_FPLL, crt_spi_freq);
+  fpll_spi_speed = crt_spi_freq;
   return -1;
 }
 
@@ -163,6 +165,7 @@ int do_fpll_set(unsigned addr, uint8_t value)
   cmd[1] = addr & 0xff;
   cmd[2] = value;
   spi_write_blocking(SPI_FPLL, cmd, 3);
+  dprintf("f.r[0x%02X]<0x%02X\n", addr, value);
   deassert_fpll_cs();
   return value;
 }
@@ -184,6 +187,7 @@ int do_fpll_get(unsigned addr)
   data[1] = addr & 0xff;
   data[2] = 0xFF;
   spi_write_read_blocking(SPI_FPLL, data, data, 3);
+  dprintf("f.r[0x%02X]>0x%02X\n", addr, data[2]);
   deassert_fpll_cs();
   return data[2];
 }
@@ -199,6 +203,15 @@ int do_fpll_wrrd(const uint8_t *out, uint8_t *in, unsigned n)
     spi_set_baudrate(SPI_FPLL, fpll_spi_speed);
   assert_fpll_cs();
   spi_write_read_blocking(SPI_FPLL, out, in, n);
+  // decode simple fPLL reg accesses
+  if (n == 3) {
+    unsigned addr = (out[0] << 8) | out[1];
+    // read?
+    if (addr & 0x8000)
+      dprintf("f.r[0x%02X]>0x%02X\n", addr & ~0x8000, in[2]);
+    else
+      dprintf("f.r[0x%02X]<0x%02X\n", addr & ~0x8000, out[2]);
+  }
   deassert_fpll_cs();
   return n;
 }

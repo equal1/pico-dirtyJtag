@@ -720,16 +720,26 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cfg = do_fpll_config(cfg);
       cmd_printf("\t> %d\n", cfg);
       SET_WORD_AT(respbuf+resppos, cfg);
+      cmdpos += 5;
       resppos += sizeof(uint32_t);
       break;
     // fPLL_setBaud(uint8 n, uint8[n] data) -> uint8 n, uint8[n] 
     case CMD_FPLL_WRRD:
       n = cmdbuf[cmdpos+1];
-      n = do_fpll_wrrd(cmdbuf + cmdpos + 2, respbuf + resppos + 1, 1+n) - 1;
-      if (n < 0)
-        n = 0;
-      respbuf[resppos++] = n;
-      resppos += n;
+      m = do_fpll_wrrd(cmdbuf + cmdpos + 2, respbuf + resppos + 1, 1+n) - 1;
+      if (m < 0)
+        m = 0;
+      //printf("[%02X.%02X]", cmdbuf[cmdpos], cmdbuf[cmdpos+1] );
+      //for (int i = 0; i <= n; ++i)
+      //  printf("%02X", cmdbuf[cmdpos+2+i]);
+      //printf(">");
+      cmdpos += 3+n;
+      respbuf[resppos++] = m;
+      //printf("[%02X]", respbuf[resppos-1] );
+      //for (int i = 0; i <= n; ++i)
+      //  printf("%02X", respbuf[resppos+i]);
+      //printf("\n");
+      resppos += 1+n;
       break;
 
     default:
