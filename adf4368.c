@@ -132,7 +132,7 @@ int do_fpll_config(unsigned freq_khz)
   int crt_spi_freq = fpll_spi_speed;
   spi_set_baudrate(SPI_FPLL, freq_khz * 1000);
   // need to set this here, lest the probe restores the old frequency
-  fpll_spi_speed = fpll_spi_speed = spi_get_baudrate(SPI_FPLL);
+  fpll_spi_speed = spi_get_baudrate(SPI_FPLL);
   // make sure the chip's still there
   int t = fpll_probe();
   if (t == fpll_chip_version) {

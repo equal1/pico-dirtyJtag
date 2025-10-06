@@ -726,19 +726,29 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
     // fPLL_setBaud(uint8 n, uint8[n] data) -> uint8 n, uint8[n] 
     case CMD_FPLL_WRRD:
       n = cmdbuf[cmdpos+1];
+      m = (((unsigned)cmdbuf[cmdpos+2]) << 8) | cmdbuf[cmdpos+3];
+      cmd_printf(" %c# @%u FPLL_WRRD %u", buf, cmdpos, 1+n);
+      if (n >= 2) {
+        if(! (m & 0x8000))
+          cmd_printf(" w%02X,%02X%s\n", m, cmdbuf[cmdpos+4], (n>2)?"...":"");
+        else
+          cmd_printf(" r%02X\n", m&0x7fff);
+      }
       m = do_fpll_wrrd(cmdbuf + cmdpos + 2, respbuf + resppos + 1, 1+n) - 1;
       if (m < 0)
         m = 0;
-      //printf("[%02X.%02X]", cmdbuf[cmdpos], cmdbuf[cmdpos+1] );
-      //for (int i = 0; i <= n; ++i)
-      //  printf("%02X", cmdbuf[cmdpos+2+i]);
-      //printf(">");
+      if (m != n)
+        cmd_printf("\t> error\n");
+      else {
+        if (m >= 2) {
+          if(! (cmdbuf[cmdpos+2] & 0x80))
+            cmd_printf("\t> ok\n");
+          else
+            cmd_printf("\t> %02X%s\n", respbuf[resppos+1], (m>2)?"...":"");
+        }
+      }
       cmdpos += 3+n;
       respbuf[resppos++] = m;
-      //printf("[%02X]", respbuf[resppos-1] );
-      //for (int i = 0; i <= n; ++i)
-      //  printf("%02X", respbuf[resppos+i]);
-      //printf("\n");
       resppos += 1+n;
       break;
 

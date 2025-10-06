@@ -5,6 +5,7 @@ SELF=$(basename $(pwd))
 echo srcdir=$SRCDIR
 # figure out as suitable PICO SDK
 SEARCH_PATH="$PICO_SDK_PATH \
+  /opt/pico-sdk-2.2.0 ~/pico-sdk-2.2.0 \
   /opt/pico-sdk-2.1.1 ~/pico-sdk-2.1.1 \
   /opt/pico-sdk-1.5.1 ~/pico-sdk-1.5.1 \
   /opt/pico-sdk ~/pico-sdk"
