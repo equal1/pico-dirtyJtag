@@ -5,6 +5,7 @@ cmake_minimum_required(VERSION 3.13)
 set(WIZNET_DIR ${CMAKE_SOURCE_DIR}/pico-w5500)
 add_definitions(-D_WIZCHIP_=W5500)
 add_definitions(-DDEVICE_BOARD_NAME=W5500_EVB_PICO)
+add_definitions(-DPICO_PANIC_FUNCTION=my_panic)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
@@ -31,25 +32,25 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 add_executable(dirtyJtag
-		main.c
-		usb.c
-		ethernet.c
-		eth_dbgsrv.c
-		eth_fwupd.c
-		cmd.c
-		pio_jtag.c
-		a5pins.c
-		adc.c
-		adf4368.c
-		utils.c
-		jtagx.c
-		armx.c
+	main.c
+	usb.c
+	ethernet.c
+	eth_dbgsrv.c
+	eth_fwupd.c
+	cmd.c
+	pio_jtag.c
+	a5pins.c
+	adc.c
+	adf4368.c
+	utils.c
+	jtagx.c
+	armx.c
 )
 target_include_directories(dirtyJtag PUBLIC 
-		${CMAKE_CURRENT_SOURCE_DIR}
-		${WIZNET_DIR}/Ethernet
-		${WIZNET_DIR}/Ethernet/W5500
-		)
+	${CMAKE_CURRENT_SOURCE_DIR}
+	${WIZNET_DIR}/Ethernet
+	${WIZNET_DIR}/Ethernet/W5500
+)
 
 pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/jtag.pio)
 pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/a5clk.pio)
@@ -90,13 +91,15 @@ target_link_libraries(dirtyJtag PRIVATE
 # ethernet library
 add_library(ETHERNET_FILES STATIC)
 target_sources(ETHERNET_FILES PUBLIC
-		${WIZNET_DIR}/Ethernet/socket.c
-		${WIZNET_DIR}/Ethernet/wizchip_conf.c
-		${WIZNET_DIR}/Ethernet/W5500/w5500.c
-        ${WIZNET_DIR}/Internet/DHCP/dhcp.c)
+	${WIZNET_DIR}/Ethernet/socket.c
+	${WIZNET_DIR}/Ethernet/wizchip_conf.c
+	${WIZNET_DIR}/Ethernet/W5500/w5500.c
+	${WIZNET_DIR}/Internet/DHCP/dhcp.c
+)
 target_include_directories(ETHERNET_FILES PUBLIC
-		${CMAKE_CURRENT_SOURCE_DIR}
-        ${WIZNET_DIR}/Ethernet
-        ${WIZNET_DIR}/Internet/DHCP)
+	${CMAKE_CURRENT_SOURCE_DIR}
+	${WIZNET_DIR}/Ethernet
+	${WIZNET_DIR}/Internet/DHCP
+)
 
 pico_add_extra_outputs(dirtyJtag)

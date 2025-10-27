@@ -178,6 +178,31 @@ void fatal_error()
   // this is fatal - wait 200ms then reboot to bootloader
   sleep_ms(200);
   reset_usb_boot(0, 0);
-  while (1) asm volatile ("wfe");
+  while (1)
+    asm volatile ("wfe");
 }
 
+// same as the default panic, excepte we end with fatal_error()
+void __attribute__((noreturn)) my_panic(const char *fmt, ...)
+{
+  // register a standard reboot in 1s
+  watchdog_reboot(0, 0, 1000);
+  // we start with scheduling the reboot so that even if puts/vprintf mess up,
+  // the reboot will still happen
+  puts("\n*** PANIC ***\n");
+  if (fmt) {
+    va_list args;
+    va_start(args, fmt);
+    vprintf(fmt, args);
+    puts("\n");
+  }
+  puts("Rebooting...");
+  while (1)
+    asm volatile ("wfe");
+}
+
+// just in case: attempt to override _exit too
+void __attribute__((noreturn)) _exit(int e)
+{
+  bad_error();
+}
