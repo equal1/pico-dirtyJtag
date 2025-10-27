@@ -386,6 +386,12 @@ unsigned jtag_set_config(const void *cfg, unsigned avl_bytes)
     // set the DSU address
     jcfg.dsubase = 0xe0000000;
   }
+  printf("config: IR={lead=%u sz=%u tail=%u} DR={lead=%u sz=%u tail=%u} ABORT=0x%X DPACC=0x%X APACC=0x%X\n"
+         " armcmd_xcycles=%u cpuap=%u sysap=%u dsubase=0x%X\n",
+         jcfg.ir.lead1s, jcfg.ir_size, jcfg.ir.tail1s,
+         jcfg.dr.lead1s, /*jcfg.dr_size*/ 35, jcfg.dr.tail1s,
+         jcfg.abort, jcfg.dpacc, jcfg.apacc,
+         jcfg.armcmd_xcycles, jcfg.cpu_ap, jcfg.sys_ap, jcfg.dsubase);
   return n;
 }
 
@@ -458,6 +464,9 @@ int jtag_dpacc_rd(uint32_t addr, uint32_t *data)
   // perform the transaction
   if (data)
     *data = (uint32_t)(tmp >> 3);
+  // report errors
+  if (((int)tmp & 0x7) != JTAG_OK)
+    printf("> DPACC_RD(0x%02X): 'b%03b\n", addr, (int)tmp & 0x7);
   return (int)tmp & 0x7;
 }
 
@@ -493,6 +502,8 @@ int jtag_dpacc_wr(uint32_t addr, uint32_t data)
   tmp = MK_JTAG_READ(DP_RDBUFF, 0); // 3'b111
   dprintf ("? jtag.dp.rdbuf # fetch the status\n");
   jtag_do_scan(0, 35, &tmp, &tmp);
+  if (((int)tmp & 0x7) != JTAG_OK)
+    printf("> DPACC_WR(0x%02X,0x%08X): 'b%03b\n", addr, data, (int)tmp & 0x7);
   return (int)tmp & 0x7;
 }
 
@@ -589,6 +600,9 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
     dprintf ("jtag_abort(5'b%05b) # got FAULT - ABORT the AP access\n", ABORT_ALL);
     jtag_abort(ABORT_ALL);
   }
+  // report errors
+  if (status != JTAG_OK)
+    printf("> APACC_RD(%u:0x%03X): 'b%03b\n", ap, addr, status);
   return status;
 }
 
@@ -676,10 +690,10 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
 
   // if we got anything other than OK or WAIT (either after the first try, or after the re-try), issue the abort immediately
   // normally this means FAULT, but also applies to bad status bits
-  if ((status != JTAG_OK) && (status != JTAG_WAIT)) {
-    dprintf ("jtag_abort(5'b%05b) # got FAULT - ABORT the AP access\n", ABORT_ALL);
+  if ((status != JTAG_OK) && (status != JTAG_WAIT))
     jtag_abort(ABORT_ALL);
-  }
+  if (status != JTAG_OK)
+    printf("> APACC_WR(%u:0x%03X,0x%08X): 'b%03b\n", ap, addr, data, status);
   return status;
 }
 
@@ -699,14 +713,18 @@ int jtag_ap_rd(int ap, uint32_t addr, uint32_t *data)
     // issue an abort if we got WAIT (we already aborted on anything except OK)
     if (e == JTAG_WAIT)
       jtag_abort(ABORT_ALL);
-    if (e != JTAG_OK)
+    if (e != JTAG_OK) {
+      printf("> AP_WR(%u:TAR,0x%X): 'b%03b\n", ap, addr, e);
       return e;
+    }
   }
   // perform the read using DAR[(addr&3ff)>>2]
   int e = jtag_apacc_rd(ap, MEMAP_DAR0 | (addr & 0x3fc), data);
   // issue an abort if we got WAIT
   if (e == JTAG_WAIT)
     jtag_abort(ABORT_ALL);
+  if (e != JTAG_OK)
+    printf("> AP_RD(%u:DAR@%03X): 'b%03b\n", ap, addr&0x3fc, e);
   return e;
 }
 
@@ -714,7 +732,10 @@ int jtag_ap_rd(int ap, uint32_t addr, uint32_t *data)
 // returns the status bits, writes the result to *data
 int jtag_bus_rd(uint32_t addr, uint32_t *data)
 {
-  return jtag_ap_rd(jcfg.sys_ap, addr, data);
+  int e = jtag_ap_rd(jcfg.sys_ap, addr, data);
+  if (e != JTAG_OK)
+    printf("> BUS_RD(0x%08X): 'b%03b\n", addr, e);
+  return e;
 }
 
 // issue a batch of bus reads, using the AP selected by jcfg.sys_ap
@@ -722,10 +743,13 @@ int jtag_bus_rd(uint32_t addr, uint32_t *data)
 // this first one that failed), writes the result to *data
 int jtag_bus_blockrd(uint32_t addr, unsigned n_words, uint32_t *data)
 {
+  const uint32_t addr0 = addr, n_words0 = n_words;
   while (n_words--) {
     int e = jtag_ap_rd(jcfg.sys_ap, addr, data);
-    if (e != JTAG_OK)
+    if (e != JTAG_OK) {
+      printf("> BUS_BLOCKRD(0x%08X,%u) @0x%08X: 'b%03b\n", addr0, n_words0, addr, e);
       return e;
+    }
     addr += 4; data++;
   }
   return JTAG_OK;
@@ -736,6 +760,7 @@ int jtag_bus_blockrd(uint32_t addr, unsigned n_words, uint32_t *data)
 // and deposits the chars, excluding terminating NUL, in out
 int jtag_bus_asciiz_rd(uint32_t addr, uint8_t *out)
 {
+  const uint32_t addr0 = addr;
   int n = 0;
   unsigned n_ign = addr & 3; // bytes to ignore at the start
   addr &= ~3;
@@ -745,8 +770,10 @@ int jtag_bus_asciiz_rd(uint32_t addr, uint8_t *out)
     uint32_t data;
     int e = jtag_ap_rd(jcfg.sys_ap, addr, &data);
     // return error, if need be
-    if (e != JTAG_OK)
+    if (e != JTAG_OK) {
+      printf("> BUS_ASCIIZ_RD(0x%08X) @0x%08X: 'b%03b\n", addr0, addr, e);
       return -e;
+    }
     addr += 4;
     unsigned n_avl = 4;
     // read until we hit a NULL
@@ -773,7 +800,10 @@ int jtag_bus_asciiz_rd(uint32_t addr, uint8_t *out)
 // returns the status bits, writes the result to *data
 int jtag_cpu_rd(uint32_t addr, uint32_t *data)
 {
-  return jtag_ap_rd(jcfg.cpu_ap, jcfg.dsubase|addr, data);
+  int e = jtag_ap_rd(jcfg.cpu_ap, jcfg.dsubase|addr, data);
+  if (e != JTAG_OK)
+    printf("> CPU_RD(0x%04X): 'b%03b\n", addr, e);
+  return e;
 }
 
 //=[ jtag_bus_wr() ]===========================================================
@@ -789,16 +819,19 @@ static int jtag_ap_wr(int ap, uint32_t addr, uint32_t data)
     // re-write TAR
     int e = jtag_apacc_wr(ap, MEMAP_TAR, addr);
     // issue an abort if we got WAIT (we already aborted on anything except OK)
-    if (e == JTAG_WAIT)
+    if (e != JTAG_OK) {
+      printf("> AP_WR(%u:TAR,0x%X): 'b%03b\n", ap, addr, e);
       jtag_abort(ABORT_ALL);
-    if (e != JTAG_OK)
       return e;
+    }
   }
   // perform the read using DAR[(addr&3ff)>>2]
   int e = jtag_apacc_wr(ap, MEMAP_DAR0 | (addr & 0x3fc), data);
   // issue an abort if we got WAIT (we already aborted on anything except OK)
   if (e == JTAG_WAIT)
     jtag_abort(ABORT_ALL);
+  if (e != JTAG_OK)
+    printf("> AP_WR(%u:DAR@%03X,0x%08X): 'b%03b\n", ap, addr&0x3fc, data, e);
   return e;
 }
 
@@ -806,7 +839,10 @@ static int jtag_ap_wr(int ap, uint32_t addr, uint32_t data)
 // returns the status bits
 int jtag_bus_wr(uint32_t addr, uint32_t data)
 {
-  return jtag_ap_wr(jcfg.sys_ap, addr, data);
+  int e = jtag_ap_wr(jcfg.sys_ap, addr, data);
+  if (e != JTAG_OK)
+    printf("> BUS_WR(0x%08X,0x%08X): 'b%03b\n", addr, data, e);
+  return e;
 }
 
 // issue a batch of bus writes, using the AP selected by jcfg.sys_ap
@@ -814,10 +850,13 @@ int jtag_bus_wr(uint32_t addr, uint32_t data)
 // this first one that failed)
 int jtag_bus_blockwr(uint32_t addr, unsigned n_words, const uint32_t *data)
 {
+  const uint32_t addr0 = addr, n_words0 = n_words;
   while (n_words--) {
     int e = jtag_ap_wr(jcfg.sys_ap, addr, *data);
-    if (e != JTAG_OK)
+    if (e != JTAG_OK) {
+      printf("> BUS_BLOCKWR(0x%08X,%u) @0x%08X: 'b%03b\n", addr0, n_words0, addr, e);
       return e;
+    }
     addr += 4; data++;
   }
   return JTAG_OK;
@@ -827,5 +866,8 @@ int jtag_bus_blockwr(uint32_t addr, unsigned n_words, const uint32_t *data)
 // returns the status bits
 int jtag_cpu_wr(uint32_t addr, uint32_t data)
 {
-  return jtag_ap_wr(jcfg.cpu_ap, jcfg.dsubase|addr, data);
+  int e = jtag_ap_wr(jcfg.cpu_ap, jcfg.dsubase|addr, data);
+  if (e != JTAG_OK)
+    printf("> CPU_WR(0x%04X,0x%08X): 'b%03b\n", addr, data, e);
+  return e;
 }

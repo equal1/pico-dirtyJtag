@@ -125,7 +125,7 @@ static uint32_t get_cpu_reg(unsigned addr, const char *name) {
     e = jtag_cpu_rd(addr, &res);
     if (e != JTAG_OK) {
       jtag_abort(ABORT_ALL);
-      printf("failed to read %s@0x%04X!\n", name, addr);
+      printf("failed to read %s@0x%04X! ('b%03b)\n", name, addr, e);
       return UNKNOWN;
     }
   }
@@ -141,7 +141,7 @@ static uint32_t set_cpu_reg(unsigned addr, uint32_t val, const char *name) {
     e = jtag_cpu_wr(addr, val);
     if (e != JTAG_OK) {
       jtag_abort(ABORT_ALL);
-      printf("failed to write %s@0x%04X to 0x%X!\n", name, addr, val);
+      printf("failed to write %s@0x%04X to 0x%X! ('b%03b)\n", name, addr, val, e);
       return -1;
     }
   }
@@ -293,7 +293,7 @@ static uint32_t set_icsr(uint32_t x)
 { return set_cpu_reg(SCB_ICSR, x, "ICSR"); }
 static uint32_t set_imc_rdpos(uint32_t x)
 { return set_ahb_reg(state.imc.ptr_rdpos, x | 0x10000, "IMC.RDPOS"); }
-  
+
 static void update_systick()
 {
   // take this opportunity to read SYSTICK
@@ -315,6 +315,13 @@ static const char *armexnames[] = {
   "ex.r12", "ex.lr", "ex.pc", "ex.psr"
 };
 
+static int arm_initialized = 0;
+static struct {
+  uint32_t imc_write; unsigned sz_imc_write;
+  uint32_t reset_addr; unsigned dbg_bit, m0_bit;
+  uint32_t ram_base;
+} init_args;
+
 // update state.arm
 // returns:
 //   <0: error
@@ -328,8 +335,10 @@ static int arm_update()
   //---------------------------------------------------------------------------
   // read DHCSR first
   uint32_t dhcsr = get_dhcsr();
-  if (dhcsr == UNKNOWN)
+  if (dhcsr == UNKNOWN) {
+    printf("\t> arm_update(): cannot read initial dhcsr\n");
     return -1;
+  }
   state.arm.dhcsr = dhcsr;
   // if the core isn't sleeping, read SYSTICK
   if (! (dhcsr & DHCSR_S_SLEEP))
@@ -361,11 +370,11 @@ static int arm_update()
       goto check_arm_state;
     }
     // read the IMC buffer pointer and size
-    uint32_t imc_addr = vtor + offsetof(struct vectors_s, imc_tx);
+    uint32_t imc_addr = init_args.ram_base | (vtor + offsetof(struct vectors_s, imc_tx));
     uint32_t buf_ptr, buf_sz;
     int e;
-    buf_ptr = get_ahb_reg(imc_addr + offsetof(struct imc_s, buf_addr), "ICM.BUF_ADDR");
-    buf_sz = get_ahb_reg(imc_addr + offsetof(struct imc_s, buf_size), "IMC.BUF_SIZE");
+    buf_ptr = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_addr)), "ICM.BUF_ADDR");
+    buf_sz = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_size)), "IMC.BUF_SIZE");
     if ((buf_ptr == UNKNOWN_DATA) || (buf_sz == UNKNOWN_DATA))
       return -2;
     // detect if we don't really have an IMC - very unlikely, but we don't want to try autodetection
@@ -376,17 +385,17 @@ static int arm_update()
       goto check_arm_state;
     }
 
-    state.imc.ptr_buf = buf_ptr;
+    state.imc.ptr_buf = init_args.ram_base | buf_ptr;
     state.imc.sz_buf = buf_sz;
-    state.imc.ptr_wrpos_count = imc_addr + offsetof(struct imc_s, wrpos_count);
-    state.imc.ptr_rdpos = imc_addr + offsetof(struct imc_s, rdpos);
+    state.imc.ptr_wrpos_count = init_args.ram_base | (imc_addr + offsetof(struct imc_s, wrpos_count));
+    state.imc.ptr_rdpos = init_args.ram_base | (imc_addr + offsetof(struct imc_s, rdpos));
     // allocate a buffer for the in-chip buffer
     unsigned sz = (buf_sz + 3) & ~3;
     if (state.imc.buf)
       free (state.imc.buf);
     state.imc.buf = (char*)malloc(sz);
     // setup the pointer for wrpos/count, so we won't have to re-compute it later
-    dprintf("IMC buffer 0x%04X..%04X, ctrl@0x%04X(wrpos@+0x%X, rdpos@+0x%X)\n",
+    printf("IMC buffer 0x%04X..%04X, ctrl@0x%04X(wrpos@+0x%X, rdpos@+0x%X)\n",
            buf_ptr, buf_ptr + buf_sz - 1, imc_addr,
            state.imc.ptr_wrpos_count-imc_addr, state.imc.ptr_rdpos-imc_addr);
   }
@@ -431,7 +440,7 @@ check_arm_state:
   }
   // did the core get halted?
   if ((state.arm.dfsr == UNKNOWN) || ! (state.arm.dfsr & DFSR_VCATCH)) {
-    dprintf("arm halted?, pc=0x%X, dhcsr=0x%X, dfsr=0x%X\n", 
+    printf("arm halted?, pc=0x%X, dhcsr=0x%X, dfsr=0x%X\n", 
            state.arm.pc, state.arm.dhcsr, state.arm.dfsr);
     return 3;
   }
@@ -571,8 +580,21 @@ void add_imc_text(unsigned n, const char *s)
 
 void arm_init(
   uint32_t imc_write, unsigned sz_imc_write,
-  uint32_t reset_addr, unsigned dbg_bit, unsigned m0_bit)
+  uint32_t reset_addr, unsigned dbg_bit, unsigned m0_bit,
+  uint32_t ram_base)
 {
+  arm_initialized = 0;
+  // backup args, in case we need to reinit
+  init_args.imc_write    = imc_write;
+  init_args.sz_imc_write = sz_imc_write;
+  init_args.reset_addr   = reset_addr;
+  init_args.dbg_bit      = dbg_bit;
+  init_args.m0_bit       = m0_bit;
+  init_args.ram_base     = ram_base;
+  printf("arm_init(imc_write=0x%04X..%04X, reset_addr=0x%X bits={dbg=%u m0=%u}) dsubase@0x%X ram@0x%X\n",
+    imc_write, imc_write + sz_imc_write - 1,
+    reset_addr, dbg_bit, m0_bit,
+    jcfg.dsubase, ram_base);
   // cleanup most recent state
   free_console_buffers();
   memset(&state, 0, sizeof(state));
@@ -583,7 +605,7 @@ void arm_init(
   imc_write &= ~1;
   state.cfg.fn_imc_write.start = imc_write;
   state.cfg.fn_imc_write.end = imc_write + sz_imc_write;
-  dprintf("registered imc_write @0x%04X..%04X\n", 
+  dprintf("registered imc_write @0x%04X..%04X\n",
     imc_write, imc_write + sz_imc_write - 1);
   // setup the reset config
   if (reset_addr & ~3) {
@@ -646,14 +668,22 @@ void arm_init(
     dprintf("  BPU present; CTRL=0x%08X: NUM_CODE=%u %sABLED\n", 
             bp_ctrl, (bp_ctrl>>4)&0xf, (bp_ctrl&1) ? "EN" : "DIS");
   }
+# else
+  state.cfg.n_watchpoints = -1;
+  state.cfg.n_breakpoints = -1;
 # endif
+  arm_initialized = 1;
+  printf("\t> ok\n");
 }
 
 int arm_resume(void)
 {
+  printf("arm_resume()\n");
   uint32_t dhcsr = get_dhcsr();
-  if (dhcsr == UNKNOWN)
+  if (dhcsr == UNKNOWN) {
+    printf("\t> fail (cannot read DHCSR %s)\n", "initially");
     return -1;
+  }
   state.arm.dhcsr = dhcsr;
   ddprintf("DHCSR=0x%08X\n", dhcsr);
   // if the core has C_HALT set, but S_HALT clear: we're in reset, so remove the reset
@@ -680,6 +710,10 @@ int arm_resume(void)
       rval += 0x01010101;
     }
     dhcsr = get_dhcsr();
+    if (dhcsr == UNKNOWN) {
+      printf("\t> fail (cannot read DHCSR %s)\n", "before un-halting");
+      return -3;
+    }
     state.arm.vtor = get_vtor();
     uint32_t dfsr = get_dfsr();
     dprintf("after leaving reset: DHCSR=0x%X DFSR=0x%X VTOR=0x%X DEMCR=0x%X\n",
@@ -687,26 +721,42 @@ int arm_resume(void)
     // clear the VCATCH in DFSR
     set_dfsr(dfsr);
     // un-halt the CPU
-    if (set_dhcsr(dhcsr & ~DHCSR_C_HALT))
-      return -2;
+    if (set_dhcsr(dhcsr & ~DHCSR_C_HALT)) {
+      printf("\t> fail (cannot un-halt the CPU)\n");
+      return -4;
+    }
   }
-  if (dhcsr == UNKNOWN)
-    return -3;
   // if the core is running, there's nothing to do
-  if (! (dhcsr & DHCSR_NOT_RUNNING))
+  if (! (dhcsr & DHCSR_NOT_RUNNING)) {
+    printf("\t> ok (core already running)\n");
     return 0;
+  }
   // if the core is locked up, there's also nothing to do
-  if (dhcsr & DHCSR_S_LOCKUP)
+  if (dhcsr & DHCSR_S_LOCKUP) {
+    printf("\t> ok-ish (core locked up)\n");
     return 2;
+  }
   // if the core is sleeping (not locked up/halted), halt it first
-  if (! (dhcsr & DHCSR_S_HALT))
-    set_dhcsr(dhcsr | DHCSR_C_HALT);
+  if (! (dhcsr & DHCSR_S_HALT)) {
+    printf("\t> (core is sleeping)\n");
+    if (set_dhcsr(dhcsr | DHCSR_C_HALT)) {
+      printf("\t> fail (cannot halt the CPU)\n");
+      return -5;
+    }
+  }
   // here, we're halting (potentially because we were sleeping) - 
   // - unhalt to clear both
-  set_dhcsr(dhcsr & ~DHCSR_C_HALT);
+  if (set_dhcsr(dhcsr & ~DHCSR_C_HALT)) {
+    printf("\t> fail (cannot halt the CPU)\n");
+    return -6;
+  }
   dhcsr = get_dhcsr();
   if (dhcsr != UNKNOWN)
     state.arm.dhcsr = dhcsr;
+  else {
+    printf("\t> fail (cannot read DHCSR)\n");
+    return -6;
+  }
   // confirm whether we succeeded
   ddprintf("DHCSR=0x%08X\n", dhcsr);
   // return 3 if we didn't succeed, 1 if we successfully resumed
@@ -714,6 +764,7 @@ int arm_resume(void)
   //  sleep loop, such as when the ARM is waiting for an IRQ to happen, or on
   //  the debugger to do something, so it doesn't necessarily indicate
   //  failure
+  printf((dhcsr & DHCSR_NOT_RUNNING)?"\t> ok-ish (not really resumed)\n":"\t> ok\n");
   return (dhcsr & DHCSR_NOT_RUNNING) ? 3 : 1;
 }
 
@@ -732,7 +783,10 @@ int get_arm_state(uint8_t *resp)
   // if state >= 1, same, but core is halted
   // if state >= 2, all regs are available
   // if state >= 4, the exception state is also available
+  printf("arm_get_state()\n");
   int i = arm_update();
+  if (i < 0)
+    printf("\t arm_update() fail, %d\n", i);
   int j = 0;
   // update the IMC console
   if (state.imc.buf)
@@ -785,8 +839,10 @@ int get_arm_state(uint8_t *resp)
         memmove(state.imc_data, state.imc_data + j, state.n_imc_data - j);
       state.n_imc_data -= j;
     }
+    printf("\t > ok (%u output bytes\n", n_padding + 4 + state_size + j);
     return n_padding + 4 + state_size + j;
   }
+  printf("\t > ok (state updated\n");
 }
 
 void free_console_buffers()

@@ -350,7 +350,8 @@ int jtag_bus_asciiz_rd(uint32_t addr, uint8_t *out);
 // this function, besides initializing the state tracking, resets the m0
 void arm_init(
   uint32_t imc_write, unsigned sz_imc_write,
-  uint32_t reset_addr, unsigned dbg_bit, unsigned m0_bit);
+  uint32_t reset_addr, unsigned dbg_bit, unsigned m0_bit,
+  uint32_t ram_base);
 
 // resume arm execution; if needed, this also removes the m0 reset
 int arm_resume(void);
