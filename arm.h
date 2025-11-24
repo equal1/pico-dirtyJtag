@@ -211,3 +211,9 @@ struct vectors_s {
   uint32_t fn_systick;      // [15]
   uint32_t fn_irq[32];      // [16..47]
 };
+
+// jtag tracking/reporting state
+extern struct jtag_state_s {
+  uint32_t call_depth;
+  uint32_t ap_fails, ap_fails_prev;
+} js;

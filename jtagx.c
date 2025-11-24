@@ -386,7 +386,7 @@ unsigned jtag_set_config(const void *cfg, unsigned avl_bytes)
     // set the DSU address
     jcfg.dsubase = 0xe0000000;
   }
-  printf("config: IR={lead=%u sz=%u tail=%u} DR={lead=%u sz=%u tail=%u} ABORT=0x%X DPACC=0x%X APACC=0x%X\n"
+  dprintf("config: IR={lead=%u sz=%u tail=%u} DR={lead=%u sz=%u tail=%u} ABORT=0x%X DPACC=0x%X APACC=0x%X\n"
          " armcmd_xcycles=%u cpuap=%u sysap=%u dsubase=0x%X\n",
          jcfg.ir.lead1s, jcfg.ir_size, jcfg.ir.tail1s,
          jcfg.dr.lead1s, /*jcfg.dr_size*/ 35, jcfg.dr.tail1s,
@@ -411,6 +411,7 @@ int jtag_abort(int arg)
   jtag_do_scan(1, jcfg.ir_size, &jcfg.abort, 0);
   // scan in the abort bits in the ABORT DR
   tmp = MK_JTAG_WRITE(0, arg);
+  //tmp = 0xffffffffffffffffull;
   dprintf ("jtag.abort=32'b%032b,3'b0\n", arg);
   jtag_do_scan(0, 35, (uint8_t*)&tmp, (uint8_t*)&tmp);
   // reset the cached state - DP's SELECT value, and every AP's TAR
@@ -424,6 +425,8 @@ int jtag_abort(int arg)
 }
 
 //=[ jtag_dpacc_rd() ]=========================================================
+
+struct jtag_state_s js;
 
 // issue a DPACC read
 // returns the status bits, stores the result to *data
@@ -465,7 +468,7 @@ int jtag_dpacc_rd(uint32_t addr, uint32_t *data)
   if (data)
     *data = (uint32_t)(tmp >> 3);
   // report errors
-  if (((int)tmp & 0x7) != JTAG_OK)
+  if ((((int)tmp & 0x7) != JTAG_OK) && ! js.call_depth)
     printf("> DPACC_RD(0x%02X): 'b%03b\n", addr, (int)tmp & 0x7);
   return (int)tmp & 0x7;
 }
@@ -502,7 +505,7 @@ int jtag_dpacc_wr(uint32_t addr, uint32_t data)
   tmp = MK_JTAG_READ(DP_RDBUFF, 0); // 3'b111
   dprintf ("? jtag.dp.rdbuf # fetch the status\n");
   jtag_do_scan(0, 35, &tmp, &tmp);
-  if (((int)tmp & 0x7) != JTAG_OK)
+  if ((((int)tmp & 0x7) != JTAG_OK) && ! js.call_depth)
     printf("> DPACC_WR(0x%02X,0x%08X): 'b%03b\n", addr, data, (int)tmp & 0x7);
   return (int)tmp & 0x7;
 }
@@ -577,9 +580,11 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
   // if we got WAIT, do 16 TCK pulses and retry ONCE
   // the right IR is still selected, but tmp was changed
   if (status == JTAG_WAIT) {
-    dprintf ("jtag_strobe(16) # got WAIT - retry after 16 TCK pulses\n", (addr >> 2)&3);
-    jtag_strobe(&jtag, 16, 0, SIG_TDI);
+    dprintf ("jtag_strobe(%u) # got WAIT - retry after %u TCK pulses\n", 2*jcfg.armcmd_xcycles, 2*jcfg.armcmd_xcycles);
+    jtag_strobe(&jtag, 2*jcfg.armcmd_xcycles, 0, SIG_TDI);
     if (! do_rdbuff_check) {
+      dprintf ("jtag.ir=%u'b%0*b # apacc\n", jcfg.ir_size, jcfg.ir_size, jcfg.apacc);
+      jtag_do_scan(1, jcfg.ir_size, &jcfg.apacc, NULL);
       tmp = MK_JTAG_READ(taddr, 0);
       dprintf ("? jtag.apacc addr[3:2]=2'b%02b # try #2\n", (addr >> 2)&3);
       jtag_do_scan(0, 35, &tmp, &tmp);
@@ -601,7 +606,7 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
     jtag_abort(ABORT_ALL);
   }
   // report errors
-  if (status != JTAG_OK)
+  if ((status != JTAG_OK) && ! js.call_depth)
     printf("> APACC_RD(%u:0x%03X): 'b%03b\n", ap, addr, status);
   return status;
 }
@@ -673,8 +678,8 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
   // if we got WAIT, do 16 TCK pulses and retry ONCE
   // the right IR is still selected, but tmp was changed
   if (status == JTAG_WAIT) {
-    dprintf ("jtag_strobe(16) # got WAIT - retry after 16 TCK pulses\n", (addr >> 2)&3);
-    jtag_strobe(&jtag, 16, 0, SIG_TDI);
+    dprintf ("jtag_strobe(%u) # got WAIT - retry after %u TCK pulses\n", 2*jcfg.armcmd_xcycles, 2*jcfg.armcmd_xcycles);
+    jtag_strobe(&jtag, 2*jcfg.armcmd_xcycles, 0, SIG_TDI);
     if (! do_rdbuff_check) {
       dprintf ("? jtag.apacc addr[3:2]=2'b%02b # try #2\n", (addr >> 2)&3);
       tmp = MK_JTAG_READ(taddr, 0);
@@ -692,7 +697,7 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
   // normally this means FAULT, but also applies to bad status bits
   if ((status != JTAG_OK) && (status != JTAG_WAIT))
     jtag_abort(ABORT_ALL);
-  if (status != JTAG_OK)
+  if ((status != JTAG_OK) && ! js.call_depth)
     printf("> APACC_WR(%u:0x%03X,0x%08X): 'b%03b\n", ap, addr, data, status);
   return status;
 }
@@ -706,6 +711,7 @@ int jtag_apacc_wr(int ap, uint32_t addr, uint32_t data)
 // returns the status bits, writes the result to *data
 int jtag_ap_rd(int ap, uint32_t addr, uint32_t *data)
 {
+  ++js.call_depth;
   // program AP[jcfg.sys_ap].TAR if need be
   if ((last.tar[ap] & ~0x3ff) != (addr & ~0x3ff)) {
     // re-write TAR
@@ -714,7 +720,10 @@ int jtag_ap_rd(int ap, uint32_t addr, uint32_t *data)
     if (e == JTAG_WAIT)
       jtag_abort(ABORT_ALL);
     if (e != JTAG_OK) {
-      printf("> AP_WR(%u:TAR,0x%X): 'b%03b\n", ap, addr, e);
+      ++js.ap_fails;
+      if (js.call_depth == 1)
+        printf("> AP_WR(%u:TAR,0x%X): 'b%03b\n", ap, addr, e);
+      --js.call_depth;
       return e;
     }
   }
@@ -723,8 +732,13 @@ int jtag_ap_rd(int ap, uint32_t addr, uint32_t *data)
   // issue an abort if we got WAIT
   if (e == JTAG_WAIT)
     jtag_abort(ABORT_ALL);
-  if (e != JTAG_OK)
+  if ((e != JTAG_OK) && (js.call_depth == 1))
     printf("> AP_RD(%u:DAR@%03X): 'b%03b\n", ap, addr&0x3fc, e);
+  if (e == JTAG_OK) {
+    js.ap_fails_prev = js.ap_fails;
+    js.ap_fails = 0;
+  }
+  --js.call_depth;
   return e;
 }
 
@@ -732,9 +746,11 @@ int jtag_ap_rd(int ap, uint32_t addr, uint32_t *data)
 // returns the status bits, writes the result to *data
 int jtag_bus_rd(uint32_t addr, uint32_t *data)
 {
+  ++js.call_depth;
   int e = jtag_ap_rd(jcfg.sys_ap, addr, data);
-  if (e != JTAG_OK)
+  if ((e != JTAG_OK) && (js.call_depth == 1))
     printf("> BUS_RD(0x%08X): 'b%03b\n", addr, e);
+  --js.call_depth;
   return e;
 }
 
@@ -743,15 +759,19 @@ int jtag_bus_rd(uint32_t addr, uint32_t *data)
 // this first one that failed), writes the result to *data
 int jtag_bus_blockrd(uint32_t addr, unsigned n_words, uint32_t *data)
 {
+  ++js.call_depth;
   const uint32_t addr0 = addr, n_words0 = n_words;
   while (n_words--) {
     int e = jtag_ap_rd(jcfg.sys_ap, addr, data);
     if (e != JTAG_OK) {
-      printf("> BUS_BLOCKRD(0x%08X,%u) @0x%08X: 'b%03b\n", addr0, n_words0, addr, e);
+      if (js.call_depth == 1)
+        printf("> BUS_BLOCKRD(0x%08X,%u) @0x%08X: 'b%03b\n", addr0, n_words0, addr, e);
+      --js.call_depth;
       return e;
     }
     addr += 4; data++;
   }
+  --js.call_depth;
   return JTAG_OK;
 }
 
@@ -760,6 +780,7 @@ int jtag_bus_blockrd(uint32_t addr, unsigned n_words, uint32_t *data)
 // and deposits the chars, excluding terminating NUL, in out
 int jtag_bus_asciiz_rd(uint32_t addr, uint8_t *out)
 {
+  ++js.call_depth;
   const uint32_t addr0 = addr;
   int n = 0;
   unsigned n_ign = addr & 3; // bytes to ignore at the start
@@ -771,7 +792,9 @@ int jtag_bus_asciiz_rd(uint32_t addr, uint8_t *out)
     int e = jtag_ap_rd(jcfg.sys_ap, addr, &data);
     // return error, if need be
     if (e != JTAG_OK) {
-      printf("> BUS_ASCIIZ_RD(0x%08X) @0x%08X: 'b%03b\n", addr0, addr, e);
+      if (js.call_depth == 1)
+        printf("> BUS_ASCIIZ_RD(0x%08X) @0x%08X: 'b%03b\n", addr0, addr, e);
+      --js.call_depth;
       return -e;
     }
     addr += 4;
@@ -794,15 +817,18 @@ int jtag_bus_asciiz_rd(uint32_t addr, uint8_t *out)
       --n_avl; data >>= 8;
     }
   } while (1);
+  --js.call_depth;
 }
 
 // issue a bus read, using the AP selected by jcfg.sys_ap to the DSU selected by jcfg.dsubase
 // returns the status bits, writes the result to *data
 int jtag_cpu_rd(uint32_t addr, uint32_t *data)
 {
+  ++js.call_depth;
   int e = jtag_ap_rd(jcfg.cpu_ap, jcfg.dsubase|addr, data);
-  if (e != JTAG_OK)
+  if ((e != JTAG_OK) && (js.call_depth == 1))
     printf("> CPU_RD(0x%04X): 'b%03b\n", addr, e);
+  --js.call_depth;
   return e;
 }
 
@@ -814,14 +840,19 @@ int jtag_cpu_rd(uint32_t addr, uint32_t *data)
 // returns the status bits
 static int jtag_ap_wr(int ap, uint32_t addr, uint32_t data)
 {
+  ++js.call_depth;
   // program AP[jcfg.sys_ap].TAR if need be
   if ((last.tar[ap] & ~0x3ff) != (addr & ~0x3ff)) {
     // re-write TAR
     int e = jtag_apacc_wr(ap, MEMAP_TAR, addr);
     // issue an abort if we got WAIT (we already aborted on anything except OK)
-    if (e != JTAG_OK) {
-      printf("> AP_WR(%u:TAR,0x%X): 'b%03b\n", ap, addr, e);
+    if (e == JTAG_WAIT)
       jtag_abort(ABORT_ALL);
+    if (e != JTAG_OK) {
+      ++js.ap_fails;
+      if (js.call_depth == 1)
+        printf("> AP_WR(%u:TAR,0x%X): 'b%03b\n", ap, addr, e);
+      --js.call_depth;
       return e;
     }
   }
@@ -830,8 +861,9 @@ static int jtag_ap_wr(int ap, uint32_t addr, uint32_t data)
   // issue an abort if we got WAIT (we already aborted on anything except OK)
   if (e == JTAG_WAIT)
     jtag_abort(ABORT_ALL);
-  if (e != JTAG_OK)
+  if ((e != JTAG_OK) && (js.call_depth == 1))
     printf("> AP_WR(%u:DAR@%03X,0x%08X): 'b%03b\n", ap, addr&0x3fc, data, e);
+  --js.call_depth;
   return e;
 }
 
@@ -839,9 +871,11 @@ static int jtag_ap_wr(int ap, uint32_t addr, uint32_t data)
 // returns the status bits
 int jtag_bus_wr(uint32_t addr, uint32_t data)
 {
+  ++js.call_depth;
   int e = jtag_ap_wr(jcfg.sys_ap, addr, data);
-  if (e != JTAG_OK)
+  if ((e != JTAG_OK) && (js.call_depth == 1))
     printf("> BUS_WR(0x%08X,0x%08X): 'b%03b\n", addr, data, e);
+  --js.call_depth;
   return e;
 }
 
@@ -850,15 +884,19 @@ int jtag_bus_wr(uint32_t addr, uint32_t data)
 // this first one that failed)
 int jtag_bus_blockwr(uint32_t addr, unsigned n_words, const uint32_t *data)
 {
+  ++js.call_depth;
   const uint32_t addr0 = addr, n_words0 = n_words;
   while (n_words--) {
     int e = jtag_ap_wr(jcfg.sys_ap, addr, *data);
     if (e != JTAG_OK) {
-      printf("> BUS_BLOCKWR(0x%08X,%u) @0x%08X: 'b%03b\n", addr0, n_words0, addr, e);
+      if (js.call_depth == 1)
+        printf("> BUS_BLOCKWR(0x%08X,%u) @0x%08X: 'b%03b\n", addr0, n_words0, addr, e);
+      --js.call_depth;
       return e;
     }
     addr += 4; data++;
   }
+  --js.call_depth;
   return JTAG_OK;
 }
 
@@ -866,8 +904,10 @@ int jtag_bus_blockwr(uint32_t addr, unsigned n_words, const uint32_t *data)
 // returns the status bits
 int jtag_cpu_wr(uint32_t addr, uint32_t data)
 {
+  ++js.call_depth;
   int e = jtag_ap_wr(jcfg.cpu_ap, jcfg.dsubase|addr, data);
-  if (e != JTAG_OK)
+  if ((e != JTAG_OK) && (js.call_depth == 1))
     printf("> CPU_WR(0x%04X,0x%08X): 'b%03b\n", addr, data, e);
+  --js.call_depth;
   return e;
 }

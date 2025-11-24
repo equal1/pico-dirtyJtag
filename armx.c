@@ -84,6 +84,7 @@ static struct {
     uint32_t last_rdpos;
     // work buffer
     char *buf; // copy of the relevant bits of the on-chip buffer
+    unsigned buf_sz; // size of the last allocated buffer
     // flag saying that we don't really have an IMC
     // (gets set if VTOR was set, but the pointer is null)
     int no_imc;
@@ -118,45 +119,51 @@ static int console_update();
 
 static uint32_t get_cpu_reg(unsigned addr, const char *name) {
   uint32_t res;
+  ++js.call_depth;
   int e = jtag_cpu_rd(addr, &res);
   if (e != JTAG_OK) {
-    // try once more
-    jtag_abort(ABORT_ALL);
+    // try once more (abort is handled in cpu_rd)
     e = jtag_cpu_rd(addr, &res);
     if (e != JTAG_OK) {
-      jtag_abort(ABORT_ALL);
-      printf("failed to read %s@0x%04X! ('b%03b)\n", name, addr, e);
+      if (js.call_depth == 1)
+        printf("failed to read %s@0x%04X! ('b%03b)\n", name, addr, e);
+      --js.call_depth;
       return UNKNOWN;
     }
   }
   ddprintf ("%s: 0x%X\n", name, res);
+  --js.call_depth;
   return res;
 }
 
 static uint32_t set_cpu_reg(unsigned addr, uint32_t val, const char *name) {
+  ++js.call_depth;
   int e = jtag_cpu_wr(addr, val);
   if (e != JTAG_OK) {
-    // try once more
-    jtag_abort(ABORT_ALL);
+    // try once more (abort is handled in cpu_wr)
     e = jtag_cpu_wr(addr, val);
     if (e != JTAG_OK) {
-      jtag_abort(ABORT_ALL);
-      printf("failed to write %s@0x%04X to 0x%X! ('b%03b)\n", name, addr, val, e);
+      if (js.call_depth == 1)
+        printf("failed to write 0x%X to %s@0x%04X! ('b%03b)\n", val, name, addr, e);
+      --js.call_depth;
       return -1;
     }
   }
   ddprintf ("%s:=0x%X\n", name, val);
+  --js.call_depth;
   return 0;
 }
 
 static uint32_t get_arm_reg(unsigned i, const char *name) {
+  ++js.call_depth;
   // issue a read request
   int e = set_cpu_reg(DBG_DCRSR, DCRSR_READ(i), "DCRSR");
   if (e) {
     // try once more
     e = set_cpu_reg(DBG_DCRSR, DCRSR_READ(i), "DCRSR");
     if (e) {
-      printf("failed to set DCRSR while attemping to read ARM.%s!\n", name);
+      printf("failed %s while attemping to %s ARM.%s!\n", "to set DCRSR", "read", name);
+      --js.call_depth;
       return UNKNOWN;
     }
   }
@@ -166,7 +173,8 @@ static uint32_t get_arm_reg(unsigned i, const char *name) {
     // try once more
     val = get_cpu_reg(DBG_DHCSR, "DHCSR");
     if ((val == UNKNOWN) || ! (val & DHCSR_S_REGRDY)) {
-      printf("failed waiting for DHCSR.S_REGRDY while attemping to read ARM.%s!\n", name);
+      printf("failed %s while attemping to %s ARM.%s!\n", "waiting for DHCSR.S_REGRDY", "read", name);
+      --js.call_depth;
       return UNKNOWN;
     }
   }
@@ -176,22 +184,26 @@ static uint32_t get_arm_reg(unsigned i, const char *name) {
     // try once more
     val = get_cpu_reg(DBG_DCRDR, "DCRDR");
     if (val == UNKNOWN) {
-      printf("failed to get DCRDR while attemping to read ARM.%s!\n", name);
+      printf("failed %s while attemping to %s ARM.%s!\n", "to get DCRDR", "read", name);
+      --js.call_depth;
       return UNKNOWN;
     }
   }
   ddprintf ("ARM.%s: 0x%X\n", name, val);
+  --js.call_depth;
   return val;
 }
 
 static int set_arm_reg(unsigned i, uint32_t val, const char *name) {
+  ++js.call_depth;
   // issue a write request
   int e = set_cpu_reg(DBG_DCRSR, DCRSR_WRITE(i), "DCRSR");
   if (e) {
     // try once more
     e = set_cpu_reg(DBG_DCRSR, DCRSR_WRITE(i), "DCRSR");
     if (e) {
-      printf("failed to set DCRSR while attemping to write ARM.%s!\n", name);
+      printf("failed %s while attemping to %s ARM.%s!\n", "to set DCRSR", "write", name);
+      --js.call_depth;
       return UNKNOWN;
     }
   }
@@ -201,7 +213,8 @@ static int set_arm_reg(unsigned i, uint32_t val, const char *name) {
     // try once more
     e = set_cpu_reg(DBG_DCRDR, val, "DCRDR");
     if (val == UNKNOWN) {
-      printf("failed to set DCRDR while attemping to write ARM.%s!\n", name);
+      printf("failed %s while attemping to %s ARM.%s!\n", "to set DCRDR", "write", name);
+      --js.call_depth;
       return UNKNOWN;
     }
   }
@@ -211,44 +224,48 @@ static int set_arm_reg(unsigned i, uint32_t val, const char *name) {
     // try once more
     res = get_cpu_reg(DBG_DHCSR, "DHCSR");
     if ((res == UNKNOWN) || ! (res & DHCSR_S_REGRDY)) {
-      printf("failed waiting for DHCSR.S_REGRDY while attemping to write ARM.%s!\n", name);
+      printf("failed %s while attemping to %s ARM.%s!\n", "waiting for DHCSR.S_REGRDY", "write", name);
+      --js.call_depth;
       return UNKNOWN;
     }
   }
   ddprintf ("ARM.%s:=0x%X\n", name, res);
+  --js.call_depth;
   return 0;
 }
 
 static uint32_t get_ahb_reg(unsigned addr, const char *name) {
+  ++js.call_depth;
   uint32_t res;
   int e = jtag_bus_rd(addr, &res);
   if (e != JTAG_OK) {
-    jtag_abort(ABORT_ALL);
     // try once more
     e = jtag_bus_rd(addr, &res);
     if (e != JTAG_OK) {
-      jtag_abort(ABORT_ALL);
-      printf("failed to read %s@0x%04X!\n", name, addr);
+      printf("failed to read %s@0x%04X! ('b%03b)\n", name, addr, e);
+      --js.call_depth;
       return UNKNOWN_DATA; // '????'
     }
   }
   ddprintf ("%s: 0x%X\n", name, res);
+  --js.call_depth;
   return res;
 }
 
 static uint32_t set_ahb_reg(unsigned addr, uint32_t val, const char *name) {
+  ++js.call_depth;
   int e = jtag_bus_wr(addr, val);
   if (e != JTAG_OK) {
-    jtag_abort(ABORT_ALL);
     // try once more
     e = jtag_bus_wr(addr, val);
     if (e != JTAG_OK) {
-      jtag_abort(ABORT_ALL);
-      printf("failed to write %s@0x%04X to 0x%X!\n", name, addr, val);
+      printf("failed to write 0x%X to %s@0x%04X! ('b%03b)\n", val, name, addr, e);
+      --js.call_depth;
       return -1;
     }
   }
   ddprintf ("%s:=0x%X\n", name, val);
+  --js.call_depth;
   return 0;
 }
 
@@ -330,13 +347,17 @@ static struct {
 //    2: lockup (all arm regs, +dfsr/icsr, also available)
 //    3: halted (same as lockup)
 //    4: crashed (stack dump and reconstructed sp also available)
+static const char *arm_upd_err = NULL;
 static int arm_update()
 {
+  if (js.call_depth)
+    printf("call_depth=%u\n", js.call_depth);
+  arm_upd_err = NULL;
   //---------------------------------------------------------------------------
   // read DHCSR first
   uint32_t dhcsr = get_dhcsr();
   if (dhcsr == UNKNOWN) {
-    printf("\t> arm_update(): cannot read initial dhcsr\n");
+    arm_upd_err = "cannot read initial DHCSR";
     return -1;
   }
   state.arm.dhcsr = dhcsr;
@@ -360,13 +381,13 @@ static int arm_update()
     }
     uint32_t vtor = get_vtor();
     if (vtor == UNKNOWN) {
-      printf ("cannot read VTOR!\n");
+      arm_upd_err = "cannot read VTOR";
       goto check_arm_state;
     }
     state.arm.vtor = vtor;
     // if VTOR wasn't set up yet, try again next time
     if (! vtor) {
-      dprintf ("VTOR hasn't been set yet!\n");
+      arm_upd_err = "VTOR hasn't been set yet";
       goto check_arm_state;
     }
     // read the IMC buffer pointer and size
@@ -380,7 +401,7 @@ static int arm_update()
     // detect if we don't really have an IMC - very unlikely, but we don't want to try autodetection
     // every time, when there's none
     if (!buf_ptr || !buf_sz) {
-      printf ("Seems there's no IMC!\n");
+      arm_upd_err = "seems there's no IMC";
       state.imc.no_imc = 1;
       goto check_arm_state;
     }
@@ -389,11 +410,15 @@ static int arm_update()
     state.imc.sz_buf = buf_sz;
     state.imc.ptr_wrpos_count = init_args.ram_base | (imc_addr + offsetof(struct imc_s, wrpos_count));
     state.imc.ptr_rdpos = init_args.ram_base | (imc_addr + offsetof(struct imc_s, rdpos));
-    // allocate a buffer for the in-chip buffer
+    // do not reallocate the IMC buffer unless there's a need to
     unsigned sz = (buf_sz + 3) & ~3;
-    if (state.imc.buf)
-      free (state.imc.buf);
-    state.imc.buf = (char*)malloc(sz);
+    if (!state.imc.buf || (state.imc.buf_sz > sz)) {
+      // allocate a buffer for the in-chip buffer
+      if (state.imc.buf)
+        free (state.imc.buf);
+      state.imc.buf = (char*)malloc(sz);
+      state.imc.buf_sz = sz;
+    }
     // setup the pointer for wrpos/count, so we won't have to re-compute it later
     printf("IMC buffer 0x%04X..%04X, ctrl@0x%04X(wrpos@+0x%X, rdpos@+0x%X)\n",
            buf_ptr, buf_ptr + buf_sz - 1, imc_addr,
@@ -449,7 +474,7 @@ check_arm_state:
   uint32_t sp = state.arm.sp;
   if ((sp >= RAM_START) && ((sp+0x20) <= RAM_END)) {
     for (int i = 0; i < countof(state.arm.except._on_stack); ++i)
-      state.arm.except._on_stack[i] = get_ahb_reg(sp + i*4, armexnames[i]);
+      state.arm.except._on_stack[i] = get_ahb_reg(init_args.ram_base | sp + i*4, armexnames[i]);
     // rebuilt the sp at exception time
     state.arm.except.sp = UNKNOWN;
     if (state.arm.except.psr != UNKNOWN)
@@ -468,12 +493,14 @@ int console_update()
 {
   // bail out if console isn't initialized yet
   char *buf = state.imc.buf;
-  if (! buf)
+  if (! buf || state.imc.no_imc)
     return 0;
   // bail out if there's no new data in the IMC
   uint32_t crt_wrpos_count = get_imc_wrpos_cnt(); 
-  if (crt_wrpos_count == UNKNOWN_DATA)
+  if (crt_wrpos_count == UNKNOWN_DATA) {
+    printf("%s: cannot read wrpos/count\n", "console_update()");
     return 0;
+  }
   // see how much the ARM has output
   int n = (crt_wrpos_count >> 16) - (state.imc.last_wrpos_count >> 16);
   if (n < 0)
@@ -493,7 +520,12 @@ int console_update()
       state.cfg.halted_by_us = 1;
     }
     // re-read wrpos and count
+    // ALPHA7: NOTE THESE CAN FAIL WITH FPGA!!!
     crt_wrpos_count = get_imc_wrpos_cnt();
+    if (crt_wrpos_count == UNKNOWN_DATA) {
+      printf("%s: cannot read wrpos/count\n", "console_update()");
+      return 0;
+    }
     new = (crt_wrpos_count >> 16) - (state.imc.last_wrpos_count >> 16);
     if (new < 0)
       new += 0x10000;
@@ -506,8 +538,18 @@ int console_update()
     while (n <= 0)
       n += bsz;
     // read the whole buffer
-    for (unsigned i = 0; i < bsz; i += 4)
-      *(uint32_t*)(buf + i) = get_imc_buf(i);
+    unsigned n_fails = 0;
+    for (unsigned i = 0; i < bsz; i += 4) {
+      uint32_t t = get_imc_buf(i);
+      *(uint32_t*)(buf + i) = t;
+      if (t != UNKNOWN_DATA)
+        n_fails = 0;
+      // let's just assume we don't have to read more than 80 '?'s in a row
+      else if(++n_fails >= 20) {
+        printf("%s: got 20 read fails from 0x%08X, aborting...\n", "console_update()", state.imc.ptr_buf + i - (19*4)); // we didn't increment i yet
+        return 0;
+      }
+    }
     dprintf("console_update: wrpos/cnt=%u:%u,last=%u:%u; rdpos=%u,next=%u+%u; n=%u (of %u)\n", 
       crt_wrpos_count & 0xffff, crt_wrpos_count >> 16, 
       state.imc.last_wrpos_count & 0xffff, state.imc.last_wrpos_count >> 16,
@@ -532,12 +574,21 @@ int console_update()
     // note, new_rdpos *might* exceed sz_buf; we handle this by reading with 2
     // indices, one of which wraps around
     int wa = 0;
+    unsigned n_fails = 0;
     for (unsigned i = last_rdpos & ~3, j = i; i < new_rdpos; i += 4, j += 4) {
       if (j >= bsz) {
         wa = 1;
         j -= bsz;
       }
-      *(uint32_t*)(buf + j) = get_imc_buf(j);
+      uint32_t t = get_imc_buf(j);
+      *(uint32_t*)(buf + j) = t;
+      if (t != UNKNOWN_DATA)
+        n_fails = 0;
+      // let's just assume we don't have to read more than 80 '?'s in a row
+      else if(++n_fails >= 20) {
+        printf("%s: got 20 read fails from 0x%08X, aborting...\n", "console_update()", state.imc.ptr_buf + i - (19*4)); // we didn't increment i yet
+        return 0;
+      }
     }
     // handle wrap-arounds
     imc_printf ("imc(%u)={", n);
@@ -783,10 +834,10 @@ int get_arm_state(uint8_t *resp)
   // if state >= 1, same, but core is halted
   // if state >= 2, all regs are available
   // if state >= 4, the exception state is also available
-  printf("arm_get_state()\n");
+  dprintf("arm_get_state()\n");
   int i = arm_update();
   if (i < 0)
-    printf("\t arm_update() fail, %d\n", i);
+    printf("arm_get_state(): arm_update()->%d: %s\n", i, arm_upd_err?arm_upd_err:"???");
   int j = 0;
   // update the IMC console
   if (state.imc.buf)
@@ -839,10 +890,10 @@ int get_arm_state(uint8_t *resp)
         memmove(state.imc_data, state.imc_data + j, state.n_imc_data - j);
       state.n_imc_data -= j;
     }
-    printf("\t > ok (%u output bytes\n", n_padding + 4 + state_size + j);
+    dprintf("\t > ok (%u output bytes)\n", n_padding + 4 + state_size + j);
     return n_padding + 4 + state_size + j;
   }
-  printf("\t > ok (state updated\n");
+  dprintf("\t > ok (state updated\n");
 }
 
 void free_console_buffers()
