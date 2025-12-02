@@ -153,6 +153,9 @@ struct djtag_cfg_s {
 };
 #define A5_CONFIG_SIZE ((uint32_t)(&(((struct djtag_cfg_s*)0)->__legacy_structure_end)))
 
+#define IDCODE_A5 0x4ba06477
+#define IDCODE_A7 0x5ba06477
+
 // capabilities: available commands
 
 // count devices in the JTAG chain, using the BYPASS method

@@ -617,8 +617,13 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       if ((reset_addr >> 28) == 0x5) {
         ram_base = 0x10000000 | (reset_addr & 0x0fff0000);
       }
-      else if ((reset_addr >> 28) == 0x4)
+      // if reset_addr is 0x4..., we could be on either a5 or a7
+      else if ((reset_addr >> 28) == 0x4) {
+        extern uint32_t last_seen_idcode;
         ram_base = 0x1fff0000;
+        if (last_seen_idcode != IDCODE_A7)
+          ram_base = 0;
+      }
       cmd_printf(" %c# @%u ARM_INIT imc_write=0x%04X..%04X, rst_addr=0x%X m0=%u m0dbg=%u ram_base=0x%08X\n", 
         buf, cmdpos,
         imcwrite_addr, imcwrite_addr + imcwrite_sz - 1, 

@@ -323,9 +323,7 @@ unsigned jtag_do_bypass()
 
 //-[ jtag_get_idcodes() ]------------------------------------------------------
 
-static uint32_t last_seen_idcode = 0xffffffff;
-#define IDCODE_A5 
-#define IDCODE_A7 
+uint32_t last_seen_idcode = 0xffffffff;
 
 // get the IDCODEs in the chain
 //   returns 0 if TDO is stuck (at zero OR one), or the number of devices (scans ups
