@@ -394,7 +394,7 @@ static int arm_update()
     uint32_t imc_addr = init_args.ram_base | (vtor + offsetof(struct vectors_s, imc_tx));
     uint32_t buf_ptr, buf_sz;
     int e;
-    buf_ptr = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_addr)), "ICM.BUF_ADDR");
+    buf_ptr = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_addr)), "IMC.BUF_ADDR");
     buf_sz = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_size)), "IMC.BUF_SIZE");
     if ((buf_ptr == UNKNOWN_DATA) || (buf_sz == UNKNOWN_DATA))
       return -2;

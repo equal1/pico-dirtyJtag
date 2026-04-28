@@ -33,6 +33,9 @@
 #define DP_SELECT     0x08 // WO // [31:4]=ADDR, [3:0]=DPBANKSEL
 #define DP_RDBUFF     0x0C // RO
 
+// AP register we care about (enables us to discriminate between a5.2 and a7)
+#define AP_IDR        0xDFC
+
 // AP registers
 #define MEMAP_DAR0       0x000 // 256 Data Access Registers; access is relative to {TAR[31:10], 10'h0}
 #define MEMAP_CSW        0xD00

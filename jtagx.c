@@ -34,7 +34,7 @@ struct djtag_cfg_s jcfg = {
   .armcmd_xcycles = 8, // cycles after issuing a read/write with APACC, before checking the result
   .cpu_ap = 0, // these get set via XCMD_CONFIG,
   .sys_ap = 0,  // or whenever PINCFG changes the value of TILESEL
-  .dsubase = 0xe0000000 // default for a5
+  .dsubase = 0xe0000000 // default for a5/a5.2
 };
 
 // most recent known state
@@ -59,11 +59,20 @@ void jcfg_set_tilesel(int tile)
 {
   if ((tile < 0) || (tile > 3))
     return;
-  // print changes, with the except of the 1st one after reboot
+  // print changes, with the exception of the 1st call after reboot
   if ((tile != (((jcfg.cpu_ap >> 13) - 1) >> 1)) && jcfg.cpu_ap)
     printf ("set default tile to %d\n", tile);
-  jcfg.cpu_ap = 1 + 2*tile;
-  jcfg.sys_ap = 2 + 2*tile;
+  extern uint32_t last_seen_chip;
+  // alpha5.2 and alpha7 use AP1 for both CPU and SYS accesses
+  if ((last_seen_chip == 6) || (last_seen_chip == 7)) {
+    jcfg.cpu_ap = 1;
+    jcfg.sys_ap = 1;
+  }
+  // assume alpha5 unless we *know* that we're talking to either a5.2 or a7
+  else {
+    jcfg.cpu_ap = 1 + 2*tile;
+    jcfg.sys_ap = 2 + 2*tile;
+  }
 }
 
 //=[ jtag_go_tlr() ]-----------------------------------------------------------
@@ -324,6 +333,7 @@ unsigned jtag_do_bypass()
 //-[ jtag_get_idcodes() ]------------------------------------------------------
 
 uint32_t last_seen_idcode = 0xffffffff;
+uint32_t last_seen_chip = 0xffffffff; // 5 is alpha5, 6 is alpha5.2, 7 is alpha7; 527 is a5.2/a7 (we'll know when we read AP1's IDR)
 
 // get the IDCODEs in the chain
 //   returns 0 if TDO is stuck (at zero OR one), or the number of devices (scans ups
@@ -344,6 +354,7 @@ unsigned jtag_get_idcodes(uint32_t *idcode)
   jtag_do_scan(0, 512, NULL, jtag_in);
 
   last_seen_idcode = -1;
+  last_seen_chip = -1;
 
   // if the first ID is 0x00000000, then the chain is disconnected
   if (! *(uint32_t*)jtag_in)
@@ -360,8 +371,22 @@ unsigned jtag_get_idcodes(uint32_t *idcode)
       *idcode++ = crt_id;
     ++ndev;
   }
-  if (ndev == 1)
+  if (ndev == 1) {
     last_seen_idcode = *(uint32_t*)jtag_in;
+    // if we're connected to either a5.2 or a7, read AP1's IDR to figure out which it is, exactly
+    // (we need to know this, in order to only enable tile address remapping for the a7, but not
+    //  for a5.2)
+    if (last_seen_idcode == IDCODE_A5) {
+      printf("> connected chip is alpha5\n");
+      last_seen_chip = 5;
+    }
+    else if (last_seen_idcode == IDCODE_A52_A7) {
+      printf("> connected chip is either alpha5.2 or alpha7\n");
+      last_seen_chip = 527;
+    }
+    else
+      printf("> connected chip is UNKNOWN!\n");
+  }
   return ndev;
 }
 
@@ -379,10 +404,12 @@ unsigned jtag_set_config(const void *cfg, unsigned avl_bytes)
   jcfg.abort &= (1 << jcfg.ir_size) - 1;
   jcfg.apacc &= (1 << jcfg.ir_size) - 1;
   jcfg.dpacc &= (1 << jcfg.ir_size) - 1;
-  // alpha5?
-  if ((n == A5_CONFIG_SIZE)/* || (jcfg.sys_ap != jcfg.cpu_ap)*/) {
-    // set the DSU address
-    jcfg.dsubase = 0xe0000000;
+  // assume alpha5/alpha5.2 DSU unless we know we're an alpha7
+  if ((n == A5_CONFIG_SIZE) || (jcfg.sys_ap != jcfg.cpu_ap)) {
+    if (last_seen_chip != 7) {
+      // set the DSU address
+      jcfg.dsubase = 0xe0000000;
+    }
   }
   dprintf("config: IR={lead=%u sz=%u tail=%u} DR={lead=%u sz=%u tail=%u} ABORT=0x%X DPACC=0x%X APACC=0x%X\n"
          " armcmd_xcycles=%u cpuap=%u sysap=%u dsubase=0x%X\n",
@@ -571,8 +598,9 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
     jtag_do_scan(0, 35, &tmp, &tmp);
   }
   // perform the transaction
+  uint32_t result = (uint32_t)(tmp >> 3);
   if (data)
-    *data = (uint32_t)(tmp >> 3);
+    *data = result;
   int status = (int)tmp & 0x7;
 
   // if we got WAIT, do 16 TCK pulses and retry ONCE
@@ -592,8 +620,9 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
       dprintf ("? jtag.dp.rdbuff # try #2\n");
       jtag_do_scan(0, 35, &tmp, &tmp);
     }
+    result = (uint32_t)(tmp >> 3);
     if (data)
-      *data = (uint32_t)(tmp >> 3);
+      *data = result;
     status = (int)tmp & 0x7;
   }
 
@@ -606,6 +635,21 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
   // report errors
   if ((status != JTAG_OK) && ! js.call_depth)
     printf("> APACC_RD(%u:0x%03X): 'b%03b\n", ap, addr, status);
+  // catch AP1 IDR reads to resolve whether we're talking to a5.2 or a7
+  if ((status == JTAG_OK) && (addr == AP_IDR) && (ap == 1)) {
+    if (last_seen_chip == 527) {
+      const char *chip = "UNKNOWN!";
+      if (result == AP1IDR_A52) {
+        last_seen_chip = 6;
+        chip = "alpha5.2";
+      }
+      else if (result == AP1IDR_A7) {
+        last_seen_chip = 7;
+        chip = "alpha7";
+      }
+      printf("> chip is %s\n", chip);
+    }
+  }
   return status;
 }
 

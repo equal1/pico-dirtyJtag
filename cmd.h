@@ -153,8 +153,12 @@ struct djtag_cfg_s {
 };
 #define A5_CONFIG_SIZE ((uint32_t)(&(((struct djtag_cfg_s*)0)->__legacy_structure_end)))
 
-#define IDCODE_A5 0x4ba06477
-#define IDCODE_A7 0x5ba06477
+// we can detect alpha5 based on IDCODE alone
+#define IDCODE_A5     0x4ba06477
+// alpha5.2 and alpha7 share the same IDCODE, but we can distinguish using AP1's IDR
+#define IDCODE_A52_A7 0x5ba06477
+#define AP1IDR_A52    0x44770008 // CLASS=0x8(MEM-AP) TYPE=0x8(AHB5+HPROT) VARIANT=0x0 DESIGNER=0x23B REVISION=0x4
+#define AP1IDR_A7     0x64770017 // CLASS=0x8(MEM-AP) TYPE=0x7(AXI5) VARIANT=0x1 DESIGNER=0x23B REVISION=0x6
 
 // capabilities: available commands
 
