@@ -217,8 +217,7 @@ unsigned jtag_do_scan(int ir, unsigned n_bits, const void *out_, void *in)
     out = ones;
   // and extract the last bit
   uint8_t last_bit = 0x80 >> ((n_bits - 1) & 0x7);
-  uint8_t last_tdi = last_bit;
-  last_tdi &= out[(n_bits - 1) / 8];
+  uint8_t last_tdi = (last_bit & out[(n_bits - 1) / 8]) ? SIG_TDI : 0;
 
   // go to RTI
   jtag_go_rti();
@@ -261,7 +260,10 @@ unsigned jtag_do_scan(int ir, unsigned n_bits, const void *out_, void *in)
     // transfer the last bit, as we're exiting Shift-xR
     ddprintf (" jtag_strobe(2, TMS, %sTDI) # go to Exit1-%cR (send last bit, %u), then to Update-%cR\n", 
               last_tdi?"":"#", ir?'I':'D', last_tdi?1:0, ir?'I':'D');
-    int last_tdo = jtag_strobe(&jtag, 2, SIG_TMS, last_tdi ? SIG_TDI : 0);
+    // need to sample TDO on the first TCK cycle; on a5 silicon, you get away with sampling it after, but on a5.2 fpga,
+    // it promptly returns to zero
+    int last_tdo = jtag_strobe(&jtag, 1, SIG_TMS, last_tdi);
+    jtag_strobe(&jtag, 1, SIG_TMS, last_tdi);
     ddprintf (" > last_tdo=%u\n", last_tdo?1:0);
     if (last_tdo)
       jtag_in[(n_bits - 1) / 8] |= last_bit;
