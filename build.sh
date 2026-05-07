@@ -58,30 +58,30 @@ fi
 if [ -z $M0_PREFIX ]; then
   echo Not attempting to build for Pico.
 else
-  echo [ building for pico ]
+  echo [ building for pico, no usb tty debug ]
   echo
   mkdir -p bin
   # build the vanilla version
+  rm -rf /tmp/${SELF}-build-pico-nodbg
+  mkdir -p /tmp/${SELF}-build-pico-nodbg
+  pushd /tmp/${SELF}-build-pico-nodbg
+  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico -DPICO_PLATFORM=rp2040 -DPICO_GCC_TRIPLE=$M0_PREFIX $SRCDIR
+  make -j && \
+    cp -v dirtyJtag.uf2 $SRCDIR/bin/dirtyJtag-pico-nodbg.uf2 && \
+    cp -v dirtyJtag.elf $SRCDIR/bin/dirtyJtag-pico-nodbg.elf && chmod a-x $SRCDIR/bin/dirtyJtag-pico-nodbg.elf
+  popd
+  echo [ building for pico ]
+  mkdir -p bin
+  # build the version that outputs debug info over a ttyACM
   rm -rf /tmp/${SELF}-build-pico
   mkdir -p /tmp/${SELF}-build-pico
-  pushd /tmp/${SELF}-build-pico 
-  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico -DPICO_PLATFORM=rp2040 -DPICO_GCC_TRIPLE=$M0_PREFIX $SRCDIR
+  pushd /tmp/${SELF}-build-pico
+  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico -DPICO_PLATFORM=rp2040 -DPICO_GCC_TRIPLE=$M0_PREFIX -DUSB_DEBUG=y $SRCDIR
   make -j && \
     cp -v dirtyJtag.uf2 $SRCDIR/bin/dirtyJtag-pico.uf2 && \
     cp -v dirtyJtag.elf $SRCDIR/bin/dirtyJtag-pico.elf && chmod a-x $SRCDIR/bin/dirtyJtag-pico.elf && \
     cp -v git.c $SRCDIR/bin && \
     ${M0_PREFIX}-readelf -a dirtyJtag.elf | tail -12 > $SRCDIR/bin/dirtyJtag-pico.abi
-  popd
-  echo [ building for pico, usb tty debug ]
-  mkdir -p bin
-  # build the version that outputs debug info over a ttyACM
-  rm -rf /tmp/${SELF}-build-pico-usbdbg
-  mkdir -p /tmp/${SELF}-build-pico-usbdbg
-  pushd /tmp/${SELF}-build-pico-usbdbg
-  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico -DPICO_PLATFORM=rp2040 -DPICO_GCC_TRIPLE=$M0_PREFIX -DUSB_DEBUG=y $SRCDIR
-  make -j && \
-    cp -v dirtyJtag.uf2 $SRCDIR/bin/dirtyJtag-pico-usbdbg.uf2 && \
-    cp -v dirtyJtag.elf $SRCDIR/bin/dirtyJtag-pico-usbdbg.elf && chmod a-x $SRCDIR/bin/dirtyJtag-pico-usbdbg.elf
   popd
   echo
 fi
@@ -89,27 +89,26 @@ fi
 if [ -z $M33_PREFIX ]; then
   echo Not attempting to build for Pico2.
 else
+  echo [ building for pico2, no usb tty debug ]
+  echo
+  rm -rf /tmp/${SELF}-build-pico2-nodbg
+  mkdir -p /tmp/${SELF}-build-pico2-nodbg
+  pushd /tmp/${SELF}-build-pico2-nodbg
+  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico2 -DPICO_PLATFORM=rp2350-arm-s -DPICO_GCC_TRIPLE=$M33_PREFIX $SRCDIR
+  make -j && \
+    cp -v dirtyJtag.uf2 $SRCDIR/bin/dirtyJtag-pico2-nodbg.uf2 && \
+    cp -v dirtyJtag.elf $SRCDIR/bin/dirtyJtag-pico2-nodbg.elf && chmod a-x $SRCDIR/bin/dirtyJtag-pico2-nodbg.elf
+  popd
   echo [ building for pico2 ]
   echo
   rm -rf /tmp/${SELF}-build-pico2
   mkdir -p /tmp/${SELF}-build-pico2
   pushd /tmp/${SELF}-build-pico2
-  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico2 -DPICO_PLATFORM=rp2350-arm-s -DPICO_GCC_TRIPLE=$M33_PREFIX $SRCDIR
+  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico2 -DPICO_PLATFORM=rp2350-arm-s -DPICO_GCC_TRIPLE=$M33_PREFIX -DUSB_DEBUG=y $SRCDIR
   make -j && \
     cp -v dirtyJtag.uf2 $SRCDIR/bin/dirtyJtag-pico2.uf2 && \
     cp -v dirtyJtag.elf $SRCDIR/bin/dirtyJtag-pico2.elf && chmod a-x $SRCDIR/bin/dirtyJtag-pico2.elf && \
-    cp -v git.c $SRCDIR/bin && \
     ${M33_PREFIX}-readelf -a dirtyJtag.elf | tail -16 > $SRCDIR/bin/dirtyJtag-pico2.abi
-  popd
-  echo [ building for pico2, usb tty debug ]
-  echo
-  rm -rf /tmp/${SELF}-build-pico2-usbdbg
-  mkdir -p /tmp/${SELF}-build-pico2-usbdbg
-  pushd /tmp/${SELF}-build-pico2-usbdbg
-  cmake -DPICO_SDK_PATH=$SDK_PATH -DPICO_BOARD=pico2 -DPICO_PLATFORM=rp2350-arm-s -DPICO_GCC_TRIPLE=$M33_PREFIX -DUSB_DEBUG=y $SRCDIR
-  make -j && \
-    cp -v dirtyJtag.uf2 $SRCDIR/bin/dirtyJtag-pico2-usbdbg.uf2 && \
-    cp -v dirtyJtag.elf $SRCDIR/bin/dirtyJtag-pico2-usbdbg.elf && chmod a-x $SRCDIR/bin/dirtyJtag-pico2-usbdbg.elf
   popd
   echo
 fi
