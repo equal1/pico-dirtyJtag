@@ -338,7 +338,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
         cmd_printf("\t> %08X\n", m);
       else {
         cmd_printf("\t> (%s)\n", jtag_decode_response(n));
-        printf("!DPACC_RD(0x%02X) > 'b%03b\n", a0, n);
+        // printf("!DPACC_RD(0x%02X) > 'b%03b\n", a0, n);
       }
       break;
 
@@ -355,8 +355,8 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // prepare the response
       respbuf[resppos++] = n;
       cmd_printf("\t> (%s)\n", jtag_decode_response(n));
-      if (n != JTAG_OK)
-        printf("!DPACC_WR(0x%02X,0x%08X) > 'b%03b\n", a0, a1, n);
+      // if (n != JTAG_OK) // already printed
+      //    printf("!DPACC_WR(0x%02X,0x%08X) > 'b%03b\n", a0, a1, n);
       break;
 
     // perform an APACC read
@@ -378,7 +378,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
         cmd_printf("\t> %08X\n", m);
       else {
         cmd_printf("\t> (%s)\n", jtag_decode_response(n));
-        printf("!APACC_RD(%u:0x%04X) > 'b%03b\n", a0&0x7f, a1, n);
+        // printf("!APACC_RD(%u:0x%04X) > 'b%03b\n", a0&0x7f, a1, n);
       }
       break;
 
@@ -398,8 +398,8 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // prepare the response
       respbuf[resppos++] = n;
       cmd_printf("\t> (%s)\n", jtag_decode_response(n));
-      if (n != JTAG_OK)
-        printf("!APACC_WR(%u:0x%04X,0x%08X) > 'b%03b\n", a0&0x7f, a1, a2, n);
+      // if (n != JTAG_OK) // already printed
+      //   printf("!APACC_WR(%u:0x%04X,0x%08X) > 'b%03b\n", a0&0x7f, a1, a2, n);
       break;
 
     // perform bus reads
@@ -420,7 +420,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       }
       else {
         cmd_printf("\t> (%s)\n", jtag_decode_response(n));
-        printf("!BUS_RD(0x%08X) > 'b%03b\n", a0, n);
+        // printf("!BUS_RD(0x%08X) > 'b%03b\n", a0, n);
       }
       break;
     case XCMD_CPU_RD:
@@ -441,7 +441,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       }
       else {
         cmd_printf("\t> (%s)\n", jtag_decode_response(n));
-        printf("!CPU_RD(0x%08X) > 0b%03b\n", a0, n);
+        // printf("!CPU_RD(0x%08X) > 0b%03b\n", a0, n);
       }
       break;
 
@@ -457,8 +457,8 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // prepare the response
       respbuf[resppos++] = n;
       cmd_printf("\t> (%s)\n", jtag_decode_response(n));
-      if (n != JTAG_OK)
-        printf("!BUS_WR(0x%08X,0x%08X) > 'b%03b\n", a0, a1, n);
+      // if (n != JTAG_OK) // already printed
+      //   printf("!BUS_WR(0x%08X,0x%08X) > 'b%03b\n", a0, a1, n);
       break;
     case XCMD_CPU_WR:
       // grab the address
@@ -472,8 +472,8 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       // prepare the response
       respbuf[resppos++] = n;
       cmd_printf("\t> (%s)\n", jtag_decode_response(n));
-      if (n != JTAG_OK)
-        printf("!CPU_WR(0x%08X,0x%08X) > 'b%03b\n", a0, a1, n);
+      // if (n != JTAG_OK) // already printed
+      //   printf("!CPU_WR(0x%08X,0x%08X) > 'b%03b\n", a0, a1, n);
       break;
 
     // perform CPU bus write-and-readback

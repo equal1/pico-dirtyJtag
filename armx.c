@@ -367,8 +367,7 @@ static int arm_update()
 
   state.cfg.halted_by_us = 0;
   //---------------------------------------------------------------------------
-  // if we haven't initialized the IMC yet, do so
-  if (! state.imc.ptr_buf && ! state.imc.no_imc) {
+  if (! state.arm.vtor) {
     // if we're really early, wait for the initial system configuration to
     // complete (the cue is that the ARM vector table address is no longer 0)
     // however, it seems VTOR can't be read while the ARM is sleeping, so halt it first
@@ -380,51 +379,14 @@ static int arm_update()
       state.cfg.halted_by_us = 1;
     }
     uint32_t vtor = get_vtor();
-    if (vtor == UNKNOWN) {
+    if (vtor == UNKNOWN)
       arm_upd_err = "cannot read VTOR";
-      goto check_arm_state;
+    else {
+      state.arm.vtor = vtor;
+      // if VTOR wasn't set up yet, try again next time
+      if (! vtor)
+        arm_upd_err = "VTOR hasn't been set yet";
     }
-    state.arm.vtor = vtor;
-    // if VTOR wasn't set up yet, try again next time
-    if (! vtor) {
-      arm_upd_err = "VTOR hasn't been set yet";
-      goto check_arm_state;
-    }
-    // read the IMC buffer pointer and size
-    uint32_t imc_addr = init_args.ram_base | (vtor + offsetof(struct vectors_s, imc_tx));
-    uint32_t buf_ptr, buf_sz;
-    int e;
-    buf_ptr = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_addr)), "IMC.BUF_ADDR");
-    if (buf_ptr == UNKNOWN_DATA)
-      return -2;
-    buf_sz = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_size)), "IMC.BUF_SIZE");
-    if (buf_sz == UNKNOWN_DATA)
-      return -2;
-    // detect if we don't really have an IMC - very unlikely, but we don't want to try autodetection
-    // every time, when there's none
-    if (!buf_ptr || !buf_sz) {
-      arm_upd_err = "seems there's no IMC";
-      state.imc.no_imc = 1;
-      goto check_arm_state;
-    }
-
-    state.imc.ptr_buf = init_args.ram_base | buf_ptr;
-    state.imc.sz_buf = buf_sz;
-    state.imc.ptr_wrpos_count = init_args.ram_base | (imc_addr + offsetof(struct imc_s, wrpos_count));
-    state.imc.ptr_rdpos = init_args.ram_base | (imc_addr + offsetof(struct imc_s, rdpos));
-    // do not reallocate the IMC buffer unless there's a need to
-    unsigned sz = (buf_sz + 3) & ~3;
-    if (!state.imc.buf || (state.imc.buf_sz > sz)) {
-      // allocate a buffer for the in-chip buffer
-      if (state.imc.buf)
-        free (state.imc.buf);
-      state.imc.buf = (char*)malloc(sz);
-      state.imc.buf_sz = sz;
-    }
-    // setup the pointer for wrpos/count, so we won't have to re-compute it later
-    printf("IMC buffer 0x%04X..%04X, ctrl@0x%04X(wrpos@+0x%X, rdpos@+0x%X)\n",
-           buf_ptr, buf_ptr + buf_sz - 1, imc_addr,
-           state.imc.ptr_wrpos_count-imc_addr, state.imc.ptr_rdpos-imc_addr);
   }
   //---------------------------------------------------------------------------
 check_arm_state:
@@ -493,6 +455,49 @@ check_arm_state:
 
 int console_update()
 {
+  // if we haven't initialized the IMC yet, do so
+  if (! state.imc.ptr_buf && ! state.imc.no_imc) {
+    // if VTOR hasn't been initialized yet, it's too early to probe the IMC
+    if (! state.arm.vtor)
+      return 0;
+    // read the IMC buffer pointer and size
+    uint32_t imc_addr = init_args.ram_base | (state.arm.vtor + offsetof(struct vectors_s, imc_tx));
+    uint32_t buf_ptr = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_addr)), "IMC.BUF_ADDR");
+    if (buf_ptr == UNKNOWN_DATA)
+      return 0;
+    uint32_t buf_sz = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_size)), "IMC.BUF_SIZE");
+    if (buf_sz == UNKNOWN_DATA)
+      return 0;
+    // detect if we don't really have an IMC - very unlikely, but we don't want to try autodetection
+    // every time, when there's none
+    if (!buf_ptr || !buf_sz) {
+      arm_upd_err = "seems there's no IMC";
+      state.imc.no_imc = 1;
+      return 0;
+    }
+    state.imc.ptr_buf = init_args.ram_base | buf_ptr;
+    state.imc.sz_buf = buf_sz;
+    state.imc.ptr_wrpos_count = init_args.ram_base | (imc_addr + offsetof(struct imc_s, wrpos_count));
+    state.imc.ptr_rdpos = init_args.ram_base | (imc_addr + offsetof(struct imc_s, rdpos));
+    // do not reallocate the IMC buffer unless there's a need to
+    unsigned sz = (buf_sz + 3) & ~3;
+    if (!state.imc.buf || (state.imc.buf_sz > sz)) {
+      // allocate a buffer for the in-chip buffer
+      if (state.imc.buf)
+        free (state.imc.buf);
+      state.imc.buf = (char*)malloc(sz);
+      if (! state.imc.buf) {
+        arm_upd_err = "no memory for IMC buffer!!!";
+        state.imc.no_imc = 1;
+        return 0;
+      }
+      state.imc.buf_sz = sz;
+    }
+    // setup the pointer for wrpos/count, so we won't have to re-compute it later
+    printf("IMC buffer 0x%04X..%04X, ctrl@0x%04X(wrpos@+0x%X, rdpos@+0x%X)\n",
+           buf_ptr, buf_ptr + buf_sz - 1, imc_addr,
+           state.imc.ptr_wrpos_count-imc_addr, state.imc.ptr_rdpos-imc_addr);
+  }
   // bail out if console isn't initialized yet
   char *buf = state.imc.buf;
   if (! buf || state.imc.no_imc)
@@ -839,13 +844,22 @@ int get_arm_state(uint8_t *resp, int imc)
   // if state >= 1, same, but core is halted
   // if state >= 2, all regs are available
   // if state >= 4, the exception state is also available
+# if 0
+  putchar('.');
+  static int dots=0;
+  ++dots;
+  if (dots == 64) {
+    putchar('\n');
+    dots = 0;
+  }
+# endif
   dprintf("arm_get_state()\n");
   int i = arm_update();
   if (i < 0)
     printf("arm_get_state(): arm_update()->%d: %s\n", i, arm_upd_err?arm_upd_err:"???");
   int j = 0;
   // update the IMC console in imc mode, or if the ARM isn't running
-  if (state.imc.buf && (imc || (state.arm.dhcsr & DHCSR_NOT_RUNNING)))
+  if (imc || (state.arm.dhcsr & DHCSR_NOT_RUNNING))
     j = console_update();
   // if we halted the arm ourselves, unhalt it
   if (state.cfg.halted_by_us) {

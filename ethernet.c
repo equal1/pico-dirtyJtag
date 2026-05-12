@@ -423,7 +423,7 @@ void eth_task()
     // note, this almost certainly means a DHCP timeout; an IP conflict already
     //  changed state to error
     case DHCP_FAILED:
-      printf("eth: DHCP timeout");
+      printf("eth: DHCP timeout\n");
       eth_got_error("DHCP timeout");
       return;
     // ignore any other state
@@ -673,7 +673,7 @@ void on_dhcp_update(void)
 // DHCP IP conflict
 void on_dhcp_conflict(void)
 {
-  printf("eth/dhcp: IP conflict");
+  printf("eth/dhcp: IP conflict\n");
   eth_got_error("DHCP conflict");
 }
 
