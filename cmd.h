@@ -114,6 +114,8 @@ enum CommandModifier
   READOUT = 0x80,
   // CMD_A5CLK
   TURN_ON = 0x80,
+  // XCMD_ARM_QUERY
+  NO_IMC = 0x80,
 };
 
 enum SignalIdentifier {
@@ -363,7 +365,7 @@ void arm_init(
 // resume arm execution; if needed, this also removes the m0 reset
 int arm_resume(void);
 
-int get_arm_state(uint8_t *resp);
+int get_arm_state(uint8_t *resp, int imc);
 
 #define IMPLEMENTED_CAPS ( \
   CAP_BYPASS_COUNT | CAP_GET_IDCODES | \

@@ -395,8 +395,10 @@ static int arm_update()
     uint32_t buf_ptr, buf_sz;
     int e;
     buf_ptr = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_addr)), "IMC.BUF_ADDR");
+    if (buf_ptr == UNKNOWN_DATA)
+      return -2;
     buf_sz = get_ahb_reg(init_args.ram_base | (imc_addr + offsetof(struct imc_s, buf_size)), "IMC.BUF_SIZE");
-    if ((buf_ptr == UNKNOWN_DATA) || (buf_sz == UNKNOWN_DATA))
+    if (buf_sz == UNKNOWN_DATA)
       return -2;
     // detect if we don't really have an IMC - very unlikely, but we don't want to try autodetection
     // every time, when there's none
@@ -821,7 +823,10 @@ int arm_resume(void)
 
 //=============================================================================
 
-int get_arm_state(uint8_t *resp)
+// if imc is set, we attempt to extract whatever we can from the in-memory
+// console
+// if not, we only look at the IMC if the ARM is sleeping
+int get_arm_state(uint8_t *resp, int imc)
 {
   // update ARM state
   // output:
@@ -839,8 +844,8 @@ int get_arm_state(uint8_t *resp)
   if (i < 0)
     printf("arm_get_state(): arm_update()->%d: %s\n", i, arm_upd_err?arm_upd_err:"???");
   int j = 0;
-  // update the IMC console
-  if (state.imc.buf)
+  // update the IMC console in imc mode, or if the ARM isn't running
+  if (state.imc.buf && (imc || (state.arm.dhcsr & DHCSR_NOT_RUNNING)))
     j = console_update();
   // if we halted the arm ourselves, unhalt it
   if (state.cfg.halted_by_us) {

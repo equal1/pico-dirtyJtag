@@ -643,6 +643,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       respbuf[resppos++] = n;
       break;
     case XCMD_ARM_QUERY:
+    case XCMD_ARM_QUERY|NO_IMC:
       // int get_arm_state(uint8_t *resp)
       // function returns the number of output bytes
       // {
@@ -663,10 +664,10 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       //   }
       //   imc : char[imc_sz];
       // }
-      cmd_printf(" %c# @%u ARM_QUERY\n", buf, cmdpos);
+      cmd_printf(" %c# @%u ARM_QUERY%s\n", buf, cmdpos, (cmd == XCMD_ARM_QUERY) ? "" : ".NO_IMC");
       while (resppos & 3)
         respbuf[resppos++] = 0xcd;
-      n = get_arm_state(respbuf + resppos);
+      n = get_arm_state(respbuf + resppos, cmd == XCMD_ARM_QUERY);
       m = *(uint16_t*)(respbuf + resppos);
       cmd_printf("\t> %d (%d+%d)", n, m, *(uint16_t*)(respbuf + resppos + 2));
       if (m >= 8) {
