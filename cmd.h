@@ -103,6 +103,9 @@ enum CommandIdentifier {
   // fPLL commands
   CMD_FPLL_SETBAUD = 0x2B,
   CMD_FPLL_WRRD = 0x2C,
+  // change RST# pin (for FPGA)
+  // note: on BYPASS_COUNT or GET_IDCODES, it *will* get reset to PIN_RST
+  CMD_SET_RSTN = 0x2D,
 };
 
 enum CommandModifier

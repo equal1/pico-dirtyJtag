@@ -201,6 +201,22 @@ void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uin
   jtag_set_clk_freq(jtag, freq);
 }
 
+void set_rst_pin(pio_jtag_inst_t* jtag, uint pin_rst)
+{
+  if (pin_rst == jtag->pin_rst)
+    return;
+  // set current RST# as input
+  gpio_init(jtag->pin_rst);
+  gpio_set_dir(jtag->pin_rst, false);
+  // replace current RST pin
+  jtag->pin_rst = pin_rst;
+  // set new RST# as output (high, initially)
+  gpio_init(pin_rst);
+  gpio_put(pin_rst, true);
+  gpio_set_dir(pin_rst, true);
+  gpio_put(pin_rst, true);
+}
+
 void init_a5clk(pio_a5clk_inst_t* a5clk, uint freq, uint pin)
 {
   init_a5clk_pin(pin);

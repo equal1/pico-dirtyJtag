@@ -799,6 +799,19 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       resppos += 1+n;
       break;
 
+    // set RST# pin
+    // this is temporary (until the next chip enumeration via either BYPASS_COUNT or
+    //   GET_IDCODES)
+    // got this in to be able to use another signal as RST#; this is needed with the
+    // FPGA (which is 1v8), because the RST# is pulled hight to 1v2 unconditionally
+    case CMD_SET_RSTN:
+      cfg = cmdbuf[cmdpos+1];
+      printf("SET_RST#_PIN %u\n", cfg);
+      set_rst_pin(jtag, cfg);
+      cmdpos += 2;
+      respbuf[resppos++] = cfg;
+      break;
+
     default:
       // invalid command: reboot
       // also: print the entire command byte, not just cmd[6:0]
