@@ -220,7 +220,7 @@ int a5_pico_pins_init() {
   bi_decl(bi_1pin_with_name(PIN_A5_SSn, "A5_SS#"));
   // scan pins (weak pulldown on SCANOUT)
   gpio_init(PIN_A5_SCANEN);
-  gpio_put(PIN_A5_SCANEN, 0); // initially de-selected
+  gpio_put(PIN_A5_SCANEN, 1); // initially selected (for alpha5.2 fpga rst# purposes)
   gpio_set_dir(PIN_A5_SCANEN, GPIO_OUT);
   bi_decl(bi_1pin_with_name(PIN_A5_SCANEN, "A5_SCANEN"));
   gpio_init(PIN_A5_SCANIN);

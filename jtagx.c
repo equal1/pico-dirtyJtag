@@ -304,8 +304,8 @@ unsigned jtag_do_bypass()
   // go to RTI
   dprintf ("jtag_go_rti()\n");
   jtag_go_rti();
-  // change the RST# pin to default!!!
-  set_rst_pin(&jtag, PIN_RST);
+//  // change the RST# pin to default!!!
+//  set_rst_pin(&jtag, PIN_RST);
   // backup current state - we want to do this with no lead/tail bits
   unsigned il = jcfg.ir.lead1s, it = jcfg.ir.tail1s;
   unsigned dl = jcfg.dr.lead1s, dt = jcfg.dr.tail1s;
@@ -357,8 +357,8 @@ unsigned jtag_get_idcodes(uint32_t *idcode)
   dprintf ("jtag_do_scan(0, 512, NULL, jtag_in) # flush out the IDCODE chain\n");
   jtag_do_scan(0, 512, NULL, jtag_in);
 
-  // change the RST# pin to default!!!
-  set_rst_pin(&jtag, PIN_RST);
+//  // change the RST# pin to default!!!
+//  set_rst_pin(&jtag, PIN_RST);
 
   last_seen_idcode = -1;
   last_seen_chip = -1;
