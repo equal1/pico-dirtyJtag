@@ -292,6 +292,9 @@ struct djtag_cfg_s {
 // ADF4368 fPLL API
 #define CAP_FPLL    0x00001000
 
+// custom RST# pin
+#define CAP_CUST_RSTN 0x00002000
+
 //=[ jtagx api ]===============================================================
 
 // set default CPU/SYS APs based on what TILESEL points 
@@ -377,7 +380,7 @@ int get_arm_state(uint8_t *resp, int imc);
   CAP_ABORT | CAP_DPACC | CAP_APACC | \
   CAP_BUSACC | CAP_BURST | CAP_ASCIIZ | \
   CAP_ARM | \
-  CAP_ADC | CAP_FPLL | \
+  CAP_ADC | CAP_FPLL | CAP_CUST_RSTN | \
   0)
 
 // CAP_SCAN: IRSCAN, DRSCAN implemented
