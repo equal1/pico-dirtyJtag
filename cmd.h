@@ -155,15 +155,22 @@ struct djtag_cfg_s {
     uint32_t __legacy_structure_end;
     unsigned dsubase;
   };
+  union {
+    // end of alpha9 structure
+    uint32_t __a9_structure_end;
+    unsigned actual_n_aps;
+  };
 };
 #define A5_CONFIG_SIZE ((uint32_t)(&(((struct djtag_cfg_s*)0)->__legacy_structure_end)))
+#define A7_CONFIG_SIZE A5_CONFIG_SIZE
+#define A9_CONFIG_SIZE ((uint32_t)(&(((struct djtag_cfg_s*)0)->__a9_structure_end)))
 
 // we can detect alpha5 based on IDCODE alone
 #define IDCODE_A5     0x4ba06477
-// alpha5.2 and alpha7 share the same IDCODE, but we can distinguish using AP1's IDR
-#define IDCODE_A52_A7 0x5ba06477
-#define AP1IDR_A52    0x44770008 // CLASS=0x8(MEM-AP) TYPE=0x8(AHB5+HPROT) VARIANT=0x0 DESIGNER=0x23B REVISION=0x4
-#define AP1IDR_A7     0x64770017 // CLASS=0x8(MEM-AP) TYPE=0x7(AXI5) VARIANT=0x1 DESIGNER=0x23B REVISION=0x6
+// alpha7 and alpha9 share the same IDCODE, but we can distinguish using AP1's IDR
+#define IDCODE_A7_A9  0x5ba06477
+#define AP1IDR_A7     0x44770008 // CLASS=0x8(MEM-AP) TYPE=0x8(AHB5+HPROT) VARIANT=0x0 DESIGNER=0x23B REVISION=0x4
+#define AP1IDR_A9     0x64770017 // CLASS=0x8(MEM-AP) TYPE=0x7(AXI5) VARIANT=0x1 DESIGNER=0x23B REVISION=0x6
 
 // capabilities: available commands
 
@@ -292,6 +299,9 @@ struct djtag_cfg_s {
 // ADF4368 fPLL API
 #define CAP_FPLL    0x00001000
 
+// temporarily select a different pin to be used as RST#
+#define CAP_CUST_RSTN 0x002000
+
 //=[ jtagx api ]===============================================================
 
 // set default CPU/SYS APs based on what TILESEL points 
@@ -378,6 +388,7 @@ int get_arm_state(uint8_t *resp, int imc);
   CAP_BUSACC | CAP_BURST | CAP_ASCIIZ | \
   CAP_ARM | \
   CAP_ADC | CAP_FPLL | \
+  CAP_CUST_RSTN | \
   0)
 
 // CAP_SCAN: IRSCAN, DRSCAN implemented

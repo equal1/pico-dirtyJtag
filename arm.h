@@ -33,7 +33,7 @@
 #define DP_SELECT     0x08 // WO // [31:4]=ADDR, [3:0]=DPBANKSEL
 #define DP_RDBUFF     0x0C // RO
 
-// AP register we care about (enables us to discriminate between a5.2 and a7)
+// AP register we care about (enables us to discriminate between a7 and a9)
 #define AP_IDR        0xDFC
 
 // AP registers

@@ -34,7 +34,8 @@ struct djtag_cfg_s jcfg = {
   .armcmd_xcycles = 8, // cycles after issuing a read/write with APACC, before checking the result
   .cpu_ap = 0, // these get set via XCMD_CONFIG,
   .sys_ap = 0,  // or whenever PINCFG changes the value of TILESEL
-  .dsubase = 0xe0000000 // default for a5/a5.2
+  .dsubase = 0xe0000000, // default for a5/a7
+  .actual_n_aps = 9 // default for a5 (1@jtag + 2(sys+cpu)x4(tiles))
 };
 
 // most recent known state
@@ -63,12 +64,12 @@ void jcfg_set_tilesel(int tile)
   if ((tile != (((jcfg.cpu_ap >> 13) - 1) >> 1)) && jcfg.cpu_ap)
     printf ("set default tile to %d\n", tile);
   extern uint32_t last_seen_chip;
-  // alpha5.2 and alpha7 use AP1 for both CPU and SYS accesses
+  // alpha7 and alpha9 use AP1 for both CPU and SYS accesses
   if ((last_seen_chip == 6) || (last_seen_chip == 7)) {
     jcfg.cpu_ap = 1;
     jcfg.sys_ap = 1;
   }
-  // assume alpha5 unless we *know* that we're talking to either a5.2 or a7
+  // assume alpha5 unless we *know* that we're talking to either a7.2 or a9
   else {
     jcfg.cpu_ap = 1 + 2*tile;
     jcfg.sys_ap = 2 + 2*tile;
@@ -169,52 +170,73 @@ unsigned jtag_do_scan(int ir, unsigned n_bits, const void *out_, void *in)
   }
   ir &= 1;
 
-  if (! out) {
-    // if we're scanning into the IR, record the value (BYPASS)
-    if (ir)
-      last.ir = 0xffffffff & ((1 << jcfg.ir_size) - 1);
-    // don't bother with other checks - xPACC writes have at least the R/W# bit clear
+  // (otherwise, we'll just output 1's)
+  if (! out)
+    out = ones;
+
+//printf("do_scan(ir=%X, n_bits=%u, out=%p, in=%p); lead_bits=%d, tail_bits=%d, extra_clocks=%u\n", ir, n_bits, out_, in, lead_bits, tail_bits, extra_clocks);
+  // capture
+  // - if we're scanning into the IR,
+  // - if we're scanning a write into the DPACC SELECT register
+  // - if we're scanning a write into an APACC TAR register
+  int w_select = 0, w_ap_tar = 0;
+  uint8_t lsb = *out;
+  if (! ir) { // DR scan
+    if (last.ir == jcfg.dpacc) {
+      // reset cached SELECT if wrong number of bits (we've no idea what'd end up in SELECT)
+      if (n_bits != 35)
+        last.select = -1;
+      // if writes to SELECT, cache the value
+      else if ((lsb & 7) == ((DP_SELECT >> 2) << 1))
+        w_select = 1;
+    }
+    else if (last.ir == jcfg.apacc) {
+      // reset all cached TARs if wrong number of bits (we've no idea what'd end up in SELECT)
+      if (n_bits != 35)
+        memset(last.tar, -1, sizeof(last.tar));
+      // if SELECT indicates a valid AP
+      else if ((last.select >> 13) < jcfg.actual_n_aps)
+        // and if SELECT indicates the bank containing TAR
+        if ((last.select & 0x1ffc & ~0xf) == (MEMAP_TAR & ~0xf))
+          // if writes to TAR
+          if ((lsb & 7) == (((MEMAP_TAR >> 2) & 3) << 1))
+            // capture to the specified index
+            // note, this means we're not capturing anything for AP0, which is fine
+            // (not a MEM-AP)
+            w_ap_tar = (last.select >> 13);
+    }
   }
-  else {
-    // if we're scanning into the IR, record the value
+  if (ir || w_select || w_ap_tar) {
+    // keep in bits' msb's the most significant bits of the output
+    uint32_t bits = last.ir << (32 - jcfg.ir_size);
+    const uint8_t *pbits = out;
+    for (int pos = 0; pos < n_bits; pos += 8) {
+      unsigned n = n_bits - pos;
+      if (n > 8)
+        n = 8;
+      bits = (bits >> n) | ((uint32_t)(*pbits++) << (32 - n));
+    }
     if (ir) {
-      uint32_t mask = 0xffffffff;
-      if (n_bits < 32)
-        mask = (1 << n_bits) - 1;
-      last.ir = *(uint32_t*)out & mask &  ((1 << jcfg.ir_size) - 1);
+      last.ir = bits >> (32 - jcfg.ir_size);
       dprintf ("(last.ir=0x%X)\n", last.ir);
     }
-    // otherwise, if we're scanning into the DR, and it's a write
-    else if (! (*out & 1)) {
-      if (last.ir == jcfg.dpacc) {
-        // record DP.SELECT writes
-        if ((*out & 0x6) == (DP_SELECT >> 1)) {
-          last.select = (uint32_t)(*(uint64_t*)out >> 3);
-          dprintf ("(last.select=0x%X)\n", last.select);
-        }
-      } else if (last.ir == jcfg.apacc) {
-        // record AP<n>.TAR writes
-        if (((last.select & 0x1ffc & ~0xf) == (MEMAP_TAR & ~0xf)) &&
-            ((*out & 0x6) == (MEMAP_TAR & 0xC)>> 1))
-        {
-          int ap = last.select >> 13;
-          if (ap < sizeof(last.tar)/sizeof(last.tar[0])) {
-            last.tar[ap] = (uint32_t)(*(uint64_t*)out >> 3);
-            dprintf ("(last.tar[%u]=0x%X)\n", ap, last.tar[ap]);
-          }
-        }
-      }
+    else if (w_select) {
+      last.select = bits;
+      dprintf ("(last.dp.select=0x%X)\n", bits);
+    }
+    else { // if (w_ap_tar)
+      last.tar[w_ap_tar] = bits;
+      dprintf ("(last.ap[%u].tar=0x%X)\n", w_ap_tar, bits);
     }
   }
+
   // reverse the bits, if we have data to output
-  if (out) {
+  if (out != ones) {
     for (int i = 0; i < ((n_bits + 7) / 8); ++i)
       jtag_out[i] = revbits[out[i]];
     out = jtag_out;
   }
-  // (otherwise, we'll just output 1's)
-  else
-    out = ones;
+
   // and extract the last bit
   uint8_t last_bit = 0x80 >> ((n_bits - 1) & 0x7);
   uint8_t last_tdi = (last_bit & out[(n_bits - 1) / 8]) ? SIG_TDI : 0;
@@ -260,7 +282,7 @@ unsigned jtag_do_scan(int ir, unsigned n_bits, const void *out_, void *in)
     // transfer the last bit, as we're exiting Shift-xR
     ddprintf (" jtag_strobe(2, TMS, %sTDI) # go to Exit1-%cR (send last bit, %u), then to Update-%cR\n", 
               last_tdi?"":"#", ir?'I':'D', last_tdi?1:0, ir?'I':'D');
-    // need to sample TDO on the first TCK cycle; on a5 silicon, you get away with sampling it after, but on a5.2 fpga,
+    // need to sample TDO on the first TCK cycle; on a5 silicon, you get away with sampling it after, but on a7 fpga,
     // it promptly returns to zero
     int last_tdo = jtag_strobe(&jtag, 1, SIG_TMS, last_tdi);
     jtag_strobe(&jtag, 1, SIG_TMS, last_tdi);
@@ -304,8 +326,6 @@ unsigned jtag_do_bypass()
   // go to RTI
   dprintf ("jtag_go_rti()\n");
   jtag_go_rti();
-  // change the RST# pin to default!!!
-  set_rst_pin(&jtag, PIN_RST);
   // backup current state - we want to do this with no lead/tail bits
   unsigned il = jcfg.ir.lead1s, it = jcfg.ir.tail1s;
   unsigned dl = jcfg.dr.lead1s, dt = jcfg.dr.tail1s;
@@ -337,7 +357,7 @@ unsigned jtag_do_bypass()
 //-[ jtag_get_idcodes() ]------------------------------------------------------
 
 uint32_t last_seen_idcode = 0xffffffff;
-uint32_t last_seen_chip = 0xffffffff; // 5 is alpha5, 6 is alpha5.2, 7 is alpha7; 527 is a5.2/a7 (we'll know when we read AP1's IDR)
+uint32_t last_seen_chip = 0xffffffff; // 5 is alpha5, 6 is alpha7, 7 is alpha9; 79 is a7/a9 (we'll know when we read AP1's IDR)
 
 // get the IDCODEs in the chain
 //   returns 0 if TDO is stuck (at zero OR one), or the number of devices (scans ups
@@ -356,9 +376,6 @@ unsigned jtag_get_idcodes(uint32_t *idcode)
   // flush out the DR chain (clock 1's in); use jtag_in in-place
   dprintf ("jtag_do_scan(0, 512, NULL, jtag_in) # flush out the IDCODE chain\n");
   jtag_do_scan(0, 512, NULL, jtag_in);
-
-  // change the RST# pin to default!!!
-  set_rst_pin(&jtag, PIN_RST);
 
   last_seen_idcode = -1;
   last_seen_chip = -1;
@@ -380,16 +397,16 @@ unsigned jtag_get_idcodes(uint32_t *idcode)
   }
   if (ndev == 1) {
     last_seen_idcode = *(uint32_t*)jtag_in;
-    // if we're connected to either a5.2 or a7, read AP1's IDR to figure out which it is, exactly
-    // (we need to know this, in order to only enable tile address remapping for the a7, but not
-    //  for a5.2)
+    // if we're connected to either a7 or a9, read AP1's IDR to figure out which it is, exactly
+    // (we need to know this, in order to only enable tile address remapping for the a9, but not
+    //  for a7)
     if (last_seen_idcode == IDCODE_A5) {
       printf("> connected chip is alpha5\n");
       last_seen_chip = 5;
     }
-    else if (last_seen_idcode == IDCODE_A52_A7) {
-      printf("> connected chip is either alpha5.2 or alpha7\n");
-      last_seen_chip = 527;
+    else if (last_seen_idcode == IDCODE_A7_A9) {
+      printf("> connected chip is either alpha7 or alpha9\n");
+      last_seen_chip = 79;
     }
     else
       printf("> connected chip is UNKNOWN!\n");
@@ -411,19 +428,26 @@ unsigned jtag_set_config(const void *cfg, unsigned avl_bytes)
   jcfg.abort &= (1 << jcfg.ir_size) - 1;
   jcfg.apacc &= (1 << jcfg.ir_size) - 1;
   jcfg.dpacc &= (1 << jcfg.ir_size) - 1;
-  // assume alpha5/alpha5.2 DSU unless we know we're an alpha7
+  // assume alpha5/alpha7 DSU unless we know we're an alpha9
   if ((n == A5_CONFIG_SIZE) || (jcfg.sys_ap != jcfg.cpu_ap)) {
-    if (last_seen_chip != 7) {
+    if (last_seen_chip != 9) {
       // set the DSU address
       jcfg.dsubase = 0xe0000000;
+      // set the number of APs to 9 (1+4x2)
+      jcfg.actual_n_aps = 9;
     }
   }
+  // fixup the number of actual APs if the recent IDCODE indicates a7/a9
+  if (last_seen_idcode == IDCODE_A7_A9) {
+      // set the number of APs to 3 (jtag, system, syscfg)
+      jcfg.actual_n_aps = 3;
+  }
   dprintf("config: IR={lead=%u sz=%u tail=%u} DR={lead=%u sz=%u tail=%u} ABORT=0x%X DPACC=0x%X APACC=0x%X\n"
-         " armcmd_xcycles=%u cpuap=%u sysap=%u dsubase=0x%X\n",
+         " armcmd_xcycles=%u cpuap=%u sysap=%u dsubase=0x%X n_aps=%u\n",
          jcfg.ir.lead1s, jcfg.ir_size, jcfg.ir.tail1s,
          jcfg.dr.lead1s, /*jcfg.dr_size*/ 35, jcfg.dr.tail1s,
          jcfg.abort, jcfg.dpacc, jcfg.apacc,
-         jcfg.armcmd_xcycles, jcfg.cpu_ap, jcfg.sys_ap, jcfg.dsubase);
+         jcfg.armcmd_xcycles, jcfg.cpu_ap, jcfg.sys_ap, jcfg.dsubase, jcfg.actual_n_aps);
   return n;
 }
 
@@ -644,15 +668,15 @@ int jtag_apacc_rd(int ap, uint32_t addr, uint32_t *data)
     printf("> APACC_RD(%u:0x%03X): 'b%03b\n", ap, addr, status);
   // catch AP1 IDR reads to resolve whether we're talking to a5.2 or a7
   if ((status == JTAG_OK) && (addr == AP_IDR) && (ap == 1)) {
-    if (last_seen_chip == 527) {
+    if (last_seen_chip == 79) {
       const char *chip = "UNKNOWN!";
-      if (result == AP1IDR_A52) {
+      if (result == AP1IDR_A7) {
         last_seen_chip = 6;
-        chip = "alpha5.2";
-      }
-      else if (result == AP1IDR_A7) {
-        last_seen_chip = 7;
         chip = "alpha7";
+      }
+      else if (result == AP1IDR_A9) {
+        last_seen_chip = 7;
+        chip = "alpha9";
       }
       printf("> chip is %s\n", chip);
     }

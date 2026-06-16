@@ -201,10 +201,14 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
         jtag_set_tdi(jtag, m & SIG_TDI);
       if (n & SIG_TMS)
         jtag_set_tms(jtag, m & SIG_TMS);
-      //if (n & SIG_TRST)
-      //  jtag_set_trst(jtag, m & SIG_TRST);
-      if (n & SIG_SRST)
+      if (n & SIG_SRST) {
         jtag_set_rst(jtag, m & SIG_SRST);
+        // upon de-asserting reset, revert the reset pin to default
+        // (this is to force e1jtag to set the reset pin, if non-default, before any
+        //  RST# assertion)
+        if (m & PIN_RST)
+          set_rst_pin(jtag, PIN_RST);
+      }
       cmdpos += 3;
       break;
 
