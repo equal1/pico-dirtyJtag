@@ -6,6 +6,7 @@
 #include <hardware/pio.h>
 #include <hardware/spi.h>
 #include <hardware/clocks.h>
+#include <hardware/watchdog.h>
 #include <bsp/board.h>
 #include <tusb.h>
 #include "pio_jtag.h"
@@ -179,7 +180,12 @@ int main()
   }
 
   multicore_launch_core1(core1_entry);
+  // enable the watchdog timer, with a 1000ms timer
+  watchdog_enable(1000, 1);
+  // main loop
   while (1) {
+    // update the watchdog
+    watchdog_update();
 #   ifdef ENABLE_USB_TTY
     if (! usb_dbg_connected) {
       if (tud_cdc_connected()) {
