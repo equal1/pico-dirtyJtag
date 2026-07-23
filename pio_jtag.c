@@ -193,10 +193,16 @@ void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uin
   jtag->pin_tck = pin_tck;
   jtag->pin_tms = pin_tms;
   jtag->pin_rst = pin_rst;
-  // the JTAG PIO program is 4 cycles (out:1, in:1, jmp:2)
-  // so the JTAG clock will be sysclk (125MHz) / 4 / clkdiv
-  // for a 1MHz JTAG frequency, clkdiv is 125M/1M/4 = 31.25
-  unsigned clkdiv = (unsigned)(31.25 * 256);  // 1 MHz @ 125MHz clk_sys (jtag_clk @ 250KHz)
+  // the JTAG PIO program is 6 cycles (drive tdi, wait, rise tck, wait, sample tdo, fall tck)
+# if PICO_RP2350
+  // the JTAG clock will be sysclk (150MHz) / 6 / clkdiv
+  // for a 1MHz JTAG frequency, clkdiv is 125M/1M/6 = 25.0
+  unsigned clkdiv = 25 * 256;  // 1 MHz @ 150MHz clk_sys (jtag_clk @ 250KHz)
+# else
+  // the JTAG clock will be sysclk (125MHz) / 6 / clkdiv
+  // for a 1MHz JTAG frequency, clkdiv is 125M/1M/6 = 20.83
+  unsigned clkdiv = (unsigned)(20.83333 * 256);  // 1 MHz @ 125MHz clk_sys (jtag_clk @ 250KHz)
+# endif
   pio_jtag_init(jtag->pio, jtag->sm, clkdiv, pin_tck, pin_tdi, pin_tdo);
   jtag_set_clk_freq(jtag, freq);
 }
@@ -222,9 +228,15 @@ void init_a5clk(pio_a5clk_inst_t* a5clk, uint freq, uint pin)
   init_a5clk_pin(pin);
   a5clk->pin = pin;
   // the A5CLK PIO program is 2 cycles
-  // so the JTAG clock will be sysclk (125MHz) / 2 / clkdiv
-  // for a 1MHz JTAG frequency, clkdiv is 125M/1M/2 = 62.5
-  unsigned clkdiv = (unsigned)(62.5 * 256);  // 1 MHz @ 125MHz clk_sys
+# if PICO_RP2350
+  // the chip clock will be sysclk (150MHz) / 2 / clkdiv
+  // for a 10MHz chip clock, clkdiv is 150M/10M/2 = 7.5
+  unsigned clkdiv = (unsigned)(7.5 * 256);  // 10 MHz @ 150MHz clk_sys
+# else
+  // the chip clock will be sysclk (125MHz) / 2 / clkdiv
+  // for a 10MHz JTAG frequency, clkdiv is 125M/10M/2 = 6.25
+  unsigned clkdiv = (unsigned)(6.25 * 256);  // 10 MHz @ 125MHz clk_sys
+# endif
   pio_a5clk_init(a5clk->pio, a5clk->sm, clkdiv, pin);
   a5clk_set_freq(a5clk, freq);
   a5clk->enabled = 0;
@@ -234,7 +246,7 @@ struct djtag_clk_s djtag_clocks;
 
 void jtag_set_clk_freq(const pio_jtag_inst_t *jtag, uint freq_khz) {
   uint clk_sys_freq_khz = clock_get_hz(clk_sys) / 1000;
-  unsigned wanted_pio_freq = freq_khz * 4;
+  unsigned wanted_pio_freq = freq_khz * 6;
   // round to nearest
   // do the 256* thing because we want a Q16.8 result
   uint32_t clkdiv = (256*clk_sys_freq_khz + wanted_pio_freq/2 - 1) / wanted_pio_freq;
@@ -244,7 +256,7 @@ void jtag_set_clk_freq(const pio_jtag_inst_t *jtag, uint freq_khz) {
     clkdiv = 0xffffff;
   djtag_clocks.sys_khz = clk_sys_freq_khz;
   djtag_clocks.jtag_divider = clkdiv;
-  djtag_clocks.jtag_khz = 256*clk_sys_freq_khz / clkdiv / 4;
+  djtag_clocks.jtag_khz = 256*clk_sys_freq_khz / clkdiv / 6;
   // mess with the clocks with the state machine DISABLED
   pio_sm_set_enabled(jtag->pio, jtag->sm, false);
   pio_sm_set_clkdiv_int_frac(jtag->pio, jtag->sm, clkdiv >> 8, clkdiv & 0xff);
