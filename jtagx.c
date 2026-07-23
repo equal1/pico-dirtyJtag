@@ -81,15 +81,10 @@ void jcfg_set_tilesel(int tile)
 // go to Test-Level-Reset
 void jtag_go_tlr()
 {
-  int n = 5; // cycles to get to TLR from any state, with TMS=1
-  if (last.in_tlr)
-    n = 0; // if already in TLR, no clocks required
-  else if (last.in_rti)
-    n = 3; // from RTI, 3 clocks required
-  if (n) {
-    ddprintf("jtag_strobe(%d, TMS, TDI) # go to TLR%s\n", n, (n==3)?" from RTI":"");
-    jtag_strobe(&jtag, n, SIG_TMS, SIG_TDI);
-  }
+  // do this unconditionally, even if we're already in TLR, or if we know we're
+  // in RTI (otherwise, get_itdcodes() might be vulnerable to stale-state errors)
+  ddprintf("jtag_strobe(%d, TMS, TDI) # go to TLR\n", 5);
+  jtag_strobe(&jtag, 5, SIG_TMS, SIG_TDI);
   // after a TAP reset, the IDCODE DR is selected
   last.in_tlr = 1; last.in_rti = 0;
 }
@@ -174,59 +169,64 @@ unsigned jtag_do_scan(int ir, unsigned n_bits, const void *out_, void *in)
   if (! out)
     out = ones;
 
-//printf("do_scan(ir=%X, n_bits=%u, out=%p, in=%p); lead_bits=%d, tail_bits=%d, extra_clocks=%u\n", ir, n_bits, out_, in, lead_bits, tail_bits, extra_clocks);
-  // capture
-  // - if we're scanning into the IR,
-  // - if we're scanning a write into the DPACC SELECT register
-  // - if we're scanning a write into an APACC TAR register
-  int w_select = 0, w_ap_tar = 0;
-  uint8_t lsb = *out;
-  if (! ir) { // DR scan
-    if (last.ir == jcfg.dpacc) {
-      // reset cached SELECT if wrong number of bits (we've no idea what'd end up in SELECT)
-      if (n_bits != 35)
-        last.select = -1;
-      // if writes to SELECT, cache the value
-      else if ((lsb & 7) == ((DP_SELECT >> 2) << 1))
-        w_select = 1;
+  ddprintf("do_scan(ir=%X, n_bits=%u, out=%p, in=%p); lead_bits=%d, tail_bits=%d, extra_clocks=%u; in_rti=%d in_tlr=%d\n",
+    ir, n_bits, out_, in, lead_bits, tail_bits, extra_clocks, last.in_rti, last.in_tlr);
+  // don't attempt anything smart unless we're already in RTI
+  // (we could be in TLR, if we want the IDCODEs)
+  if (last.in_rti) {
+    // capture
+    // - if we're scanning into the IR,
+    // - if we're scanning a write into the DPACC SELECT register
+    // - if we're scanning a write into an APACC TAR register
+    int w_select = 0, w_ap_tar = 0;
+    uint8_t lsb = *out;
+    if (! ir) { // DR scan
+      if (last.ir == jcfg.dpacc) {
+        // reset cached SELECT if wrong number of bits (we've no idea what'd end up in SELECT)
+        if (n_bits != 35)
+          last.select = -1;
+        // if writes to SELECT, cache the value
+        else if ((lsb & 7) == ((DP_SELECT >> 2) << 1))
+          w_select = 1;
+      }
+      else if (last.ir == jcfg.apacc) {
+        // reset all cached TARs if wrong number of bits (we've no idea what'd end up in SELECT)
+        if (n_bits != 35)
+          memset(last.tar, -1, sizeof(last.tar));
+        // if SELECT indicates a valid AP
+        else if ((last.select >> 13) < jcfg.actual_n_aps)
+          // and if SELECT indicates the bank containing TAR
+          if ((last.select & 0x1ffc & ~0xf) == (MEMAP_TAR & ~0xf))
+            // if writes to TAR
+            if ((lsb & 7) == (((MEMAP_TAR >> 2) & 3) << 1))
+              // capture to the specified index
+              // note, this means we're not capturing anything for AP0, which is fine
+              // (not a MEM-AP)
+              w_ap_tar = (last.select >> 13);
+      }
     }
-    else if (last.ir == jcfg.apacc) {
-      // reset all cached TARs if wrong number of bits (we've no idea what'd end up in SELECT)
-      if (n_bits != 35)
-        memset(last.tar, -1, sizeof(last.tar));
-      // if SELECT indicates a valid AP
-      else if ((last.select >> 13) < jcfg.actual_n_aps)
-        // and if SELECT indicates the bank containing TAR
-        if ((last.select & 0x1ffc & ~0xf) == (MEMAP_TAR & ~0xf))
-          // if writes to TAR
-          if ((lsb & 7) == (((MEMAP_TAR >> 2) & 3) << 1))
-            // capture to the specified index
-            // note, this means we're not capturing anything for AP0, which is fine
-            // (not a MEM-AP)
-            w_ap_tar = (last.select >> 13);
-    }
-  }
-  if (ir || w_select || w_ap_tar) {
-    // keep in bits' msb's the most significant bits of the output
-    uint32_t bits = last.ir << (32 - jcfg.ir_size);
-    const uint8_t *pbits = out;
-    for (int pos = 0; pos < n_bits; pos += 8) {
-      unsigned n = n_bits - pos;
-      if (n > 8)
-        n = 8;
-      bits = (bits >> n) | ((uint32_t)(*pbits++) << (32 - n));
-    }
-    if (ir) {
-      last.ir = bits >> (32 - jcfg.ir_size);
-      dprintf ("(last.ir=0x%X)\n", last.ir);
-    }
-    else if (w_select) {
-      last.select = bits;
-      dprintf ("(last.dp.select=0x%X)\n", bits);
-    }
-    else { // if (w_ap_tar)
-      last.tar[w_ap_tar] = bits;
-      dprintf ("(last.ap[%u].tar=0x%X)\n", w_ap_tar, bits);
+    if (ir || w_select || w_ap_tar) {
+      // keep in bits' msb's the most significant bits of the output
+      uint32_t bits = last.ir << (32 - jcfg.ir_size);
+      const uint8_t *pbits = out;
+      for (int pos = 0; pos < n_bits; pos += 8) {
+        unsigned n = n_bits - pos;
+        if (n > 8)
+          n = 8;
+        bits = (bits >> n) | ((uint32_t)(*pbits++) << (32 - n));
+      }
+      if (ir) {
+        last.ir = bits >> (32 - jcfg.ir_size);
+        dprintf ("(last.ir=0x%X)\n", last.ir);
+      }
+      else if (w_select) {
+        last.select = bits;
+        dprintf ("(last.dp.select=0x%X)\n", bits);
+      }
+      else { // if (w_ap_tar)
+        last.tar[w_ap_tar] = bits;
+        dprintf ("(last.ap[%u].tar=0x%X)\n", w_ap_tar, bits);
+      }
     }
   }
 
@@ -241,7 +241,7 @@ unsigned jtag_do_scan(int ir, unsigned n_bits, const void *out_, void *in)
   uint8_t last_bit = 0x80 >> ((n_bits - 1) & 0x7);
   uint8_t last_tdi = (last_bit & out[(n_bits - 1) / 8]) ? SIG_TDI : 0;
 
-  // go to RTI
+  // go to RTI (this is a NOP *most* of the time)
   jtag_go_rti();
   // go to the right Select-xR state with TMS=1 (1 clk to Select-DR, 1 more to Select-IR)
   ddprintf (" jtag_strobe(%d, TMS, TDI) # go to Select-%cR\n", ir+1, ir?'I':'D');
@@ -285,7 +285,7 @@ unsigned jtag_do_scan(int ir, unsigned n_bits, const void *out_, void *in)
     // need to sample TDO on the first TCK cycle; on a5 silicon, you get away with sampling it after, but on a7 fpga,
     // it promptly returns to zero
     int last_tdo = jtag_strobe(&jtag, 1, SIG_TMS, last_tdi);
-    jtag_strobe(&jtag, 1, SIG_TMS, last_tdi);
+    jtag_strobe(&jtag, 1, SIG_TMS, SIG_TDI);
     ddprintf (" > last_tdo=%u\n", last_tdo?1:0);
     if (last_tdo)
       jtag_in[(n_bits - 1) / 8] |= last_bit;
@@ -373,7 +373,7 @@ unsigned jtag_get_idcodes(uint32_t *idcode)
   // after a JTAG reset, all devices select their IDCODE DR chains
   dprintf ("jtag_go_rti()\n");
   jtag_go_rti();
-  // flush out the DR chain (clock 1's in); use jtag_in in-place
+  // flush out the DR chain (clock 1's in)
   dprintf ("jtag_do_scan(0, 512, NULL, jtag_in) # flush out the IDCODE chain\n");
   jtag_do_scan(0, 512, NULL, jtag_in);
 
@@ -386,7 +386,7 @@ unsigned jtag_get_idcodes(uint32_t *idcode)
 
   // count the devices
   int ndev = 0;
-  for (int i = 0; i < 64; i += 4 ) {
+  for (int i = 0; i < 512/8; i += 32/8 ) {
     unsigned crt_id = *(uint32_t*)(jtag_in + i);
     if (crt_id == 0xffffffff)
       break;

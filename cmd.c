@@ -269,7 +269,7 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       cmd_printf(" %c# @%u XCMD_GET_IDCODES\n", buf, cmdpos);
       static uint32_t idcodes[16];
       n = jtag_get_idcodes(idcodes);
-      if (!n) {
+      if (! n) {
         cmd_printf("\t> %d", 0);
         respbuf[resppos++] = 0;
       } else {
