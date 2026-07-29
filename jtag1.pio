@@ -45,10 +45,8 @@ pio_jtag1_init(PIO pio, uint sm, unsigned clkdiv,
   // configure clock
   sm_config_set_clkdiv_int_frac(&c, clkdiv >> 8, clkdiv & 0xff);
 
-  // TDI output is low, TDO is input
-  // TCK output is high
-  pio_sm_set_pins_with_mask(pio, sm, 0, 1 << pin_tdi);
-  pio_sm_set_pins_with_mask(pio, sm, 0xffffffff, 1 << pin_tck);
+  // TDI, TCK output are low, TDO is input
+  pio_sm_set_pins_with_mask(pio, sm, 0, (1 << pin_tck) | (1 << pin_tdi));
   pio_sm_set_pindirs_with_mask(pio, sm, 
                                (1 << pin_tck) | (1 << pin_tdi) | (0 << pin_tdo),
                                (1 << pin_tck) | (1 << pin_tdi) | (1 << pin_tdo));

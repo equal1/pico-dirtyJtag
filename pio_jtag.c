@@ -192,7 +192,7 @@ static void init_a5clk_pin(uint pin)
 // method 1 works great with a5 and a7fpga, but not with a6
 // method 2 is more standards-compliant, but probably requires lower jtag frequencies
 // currently, hardcode the mode
-static int pio_jtag_mode = 1;
+static int pio_jtag_mode = 2;
 
 void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst)
 {
