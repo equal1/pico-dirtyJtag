@@ -2,7 +2,8 @@
 #include <hardware/dma.h>
 #include "pio_jtag.h"
 #include "config.h"
-#include "jtag.pio.h"
+#include "jtag1.pio.h"
+#include "jtag2.pio.h"
 #include "a5clk.pio.h"
 
 // we use multicore, so all the JTAG tasks run on core 1 _while_ core 0
@@ -185,6 +186,14 @@ static void init_a5clk_pin(uint pin)
   gpio_init_mask(1u << pin);
 }
 
+// we implement 2 JTAG modes,
+// 1: drive TDI before raising TCK, sample TDO after raising it
+// 2: drive TDI and sample TDO while TCK is low
+// method 1 works great with a5 and a7fpga, but not with a6
+// method 2 is more standards-compliant, but probably requires lower jtag frequencies
+// currently, hardcode the mode
+static int pio_jtag_mode = 1;
+
 void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst)
 {
   init_jtag_pins(pin_tck, pin_tdi, pin_tdo, pin_tms, pin_rst);
@@ -193,11 +202,15 @@ void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uin
   jtag->pin_tck = pin_tck;
   jtag->pin_tms = pin_tms;
   jtag->pin_rst = pin_rst;
-  // the JTAG PIO program is 4 cycles (out:1, in:1, jmp:2)
-  // so the JTAG clock will be sysclk (125MHz) / 4 / clkdiv
-  // for a 1MHz JTAG frequency, clkdiv is 125M/1M/4 = 31.25
-  unsigned clkdiv = (unsigned)(31.25 * 256);  // 1 MHz @ 125MHz clk_sys (jtag_clk @ 250KHz)
-  pio_jtag_init(jtag->pio, jtag->sm, clkdiv, pin_tck, pin_tdi, pin_tdo);
+  // default jtagfreq to sysclk/100 (1.5MHz on pico2, 1.25MHz on pico)
+  // the JTAG PIO program is 4 cycles (for both jtag1 and jtag2)
+  // so the JTAG frequency will be sysclk / 4 / clkdiv
+  // jtagfreq = sysclk / 4 / clkdiv, sysclk/100 = sysclk / 4 / clkdiv, 1/25 = 1/clkdiv
+  unsigned clkdiv = (unsigned)(25 * 256); // 1.25MHz @ 125MHz sysclk, 1.5MHz @150MHz sysclk
+  if (pio_jtag_mode == 2)
+    pio_jtag2_init(jtag->pio, jtag->sm, clkdiv, pin_tck, pin_tdi, pin_tdo);
+  else
+    pio_jtag1_init(jtag->pio, jtag->sm, clkdiv, pin_tck, pin_tdi, pin_tdo);
   jtag_set_clk_freq(jtag, freq);
 }
 
@@ -221,10 +234,11 @@ void init_a5clk(pio_a5clk_inst_t* a5clk, uint freq, uint pin)
 {
   init_a5clk_pin(pin);
   a5clk->pin = pin;
+  // default a5clk to sysclk/10 (15MHz on pico2, 12.5MHz on pico):
   // the A5CLK PIO program is 2 cycles
-  // so the JTAG clock will be sysclk (125MHz) / 2 / clkdiv
-  // for a 1MHz JTAG frequency, clkdiv is 125M/1M/2 = 62.5
-  unsigned clkdiv = (unsigned)(62.5 * 256);  // 1 MHz @ 125MHz clk_sys
+  // so the alpha clock will be sysclk / 2 / clkdiv
+  // a5clk = sysclk / 2 / clkdiv, sysclk/10 = sysclk / 2 / clkdiv, 1/5 = 1/clkdiv => clkdiv = 5
+  unsigned clkdiv = (unsigned)(5 * 256);  // 12.5MHz @ 125MHz sysclk, 15MHz @ 150Mhz sysclk
   pio_a5clk_init(a5clk->pio, a5clk->sm, clkdiv, pin);
   a5clk_set_freq(a5clk, freq);
   a5clk->enabled = 0;

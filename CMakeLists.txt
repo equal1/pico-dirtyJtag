@@ -52,7 +52,8 @@ target_include_directories(dirtyJtag PUBLIC
 	${WIZNET_DIR}/Ethernet/W5500
 )
 
-pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/jtag.pio)
+pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/jtag1.pio)
+pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/jtag2.pio)
 pico_generate_pio_header(dirtyJtag ${CMAKE_CURRENT_LIST_DIR}/a5clk.pio)
 
 pico_set_program_name(dirtyJtag "dirtyJtag")

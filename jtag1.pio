@@ -1,7 +1,9 @@
 ;JTAG implementation
+; this one drives TDI before posedge(TCK), samples TDO after
+; and it idles with TCK low
 
 .pio_version 0 // only require PIO version 0
-.program djtag_tdo
+.program djtag1_tdo
 .side_set 1 opt
 
 ; Pin assignments:
@@ -17,21 +19,21 @@
     pull                        ; get length-1 and disregard previous OSR state 
     out x, 32       side 0      ; this moves the first 32 bits into X
 loop:
-    out pins, 1     side 0      ; Stall here on empty (sideset proceeds even if instruction stalls, so we stall with TCK low
+    out pins, 1     side 0      ; drive TDI; stall here on empty (sideset proceeds even if instruction stalls, so we stall with TCK low
     nop             side 1      ; raise TCK
     in pins, 1      side 1      ; sample TDO
-    jmp x-- loop    side 0
+    jmp x-- loop    side 0      ; lower TCK and iterate
     push            side 0      ; Force the last ISR bits to be pushed to the tx fifo
 
 % c-sdk {
 #include "hardware/gpio.h"
 static inline void
-pio_jtag_init(PIO pio, uint sm, unsigned clkdiv,
-              uint pin_tck, uint pin_tdi, uint pin_tdo)
+pio_jtag1_init(PIO pio, uint sm, unsigned clkdiv,
+               uint pin_tck, uint pin_tdi, uint pin_tdo)
 {
   // load the JTAG program into the PIO
-  uint prog_offs = pio_add_program(pio, &djtag_tdo_program);
-  pio_sm_config c = djtag_tdo_program_get_default_config(prog_offs);
+  uint prog_offs = pio_add_program(pio, &djtag1_tdo_program);
+  pio_sm_config c = djtag1_tdo_program_get_default_config(prog_offs);
   // output on TDI, input on TDO, clock on TCK
   sm_config_set_out_pins(&c, pin_tdi, 1);
   sm_config_set_in_pins(&c, pin_tdo);
@@ -43,8 +45,10 @@ pio_jtag_init(PIO pio, uint sm, unsigned clkdiv,
   // configure clock
   sm_config_set_clkdiv_int_frac(&c, clkdiv >> 8, clkdiv & 0xff);
 
-  // TDI, TCK output are low, TDO is input
-  pio_sm_set_pins_with_mask(pio, sm, 0, (1 << pin_tck) | (1 << pin_tdi));
+  // TDI output is low, TDO is input
+  // TCK output is high
+  pio_sm_set_pins_with_mask(pio, sm, 0, 1 << pin_tdi);
+  pio_sm_set_pins_with_mask(pio, sm, 0xffffffff, 1 << pin_tck);
   pio_sm_set_pindirs_with_mask(pio, sm, 
                                (1 << pin_tck) | (1 << pin_tdi) | (0 << pin_tdo),
                                (1 << pin_tck) | (1 << pin_tdi) | (1 << pin_tdo));
