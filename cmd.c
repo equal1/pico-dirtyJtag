@@ -35,7 +35,7 @@
 #include "arm.h"
 #include "config.h"
 #include "pio_jtag.h"
-#include "jtag1.pio.h"
+//#include "jtag1.pio.h"
 #include "jtag2.pio.h"
 #include "adc.h"
 #include "adf4368.h"

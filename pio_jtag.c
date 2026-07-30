@@ -2,7 +2,7 @@
 #include <hardware/dma.h>
 #include "pio_jtag.h"
 #include "config.h"
-#include "jtag1.pio.h"
+//#include "jtag1.pio.h"
 #include "jtag2.pio.h"
 #include "a5clk.pio.h"
 
@@ -190,9 +190,9 @@ static void init_a5clk_pin(uint pin)
 // 1: drive TDI before raising TCK, sample TDO after raising it
 // 2: drive TDI and sample TDO while TCK is low
 // method 1 works great with a5 and a7fpga, but not with a6
-// method 2 is more standards-compliant, but probably requires lower jtag frequencies
+// method 2 works great with all chips, so we have a winner
 // currently, hardcode the mode
-static int pio_jtag_mode = 2;
+//static int pio_jtag_mode = 2;
 
 void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uint pin_tdo, uint pin_tms, uint pin_rst)
 {
@@ -207,10 +207,10 @@ void init_jtag(pio_jtag_inst_t* jtag, uint freq, uint pin_tck, uint pin_tdi, uin
   // so the JTAG frequency will be sysclk / 4 / clkdiv
   // jtagfreq = sysclk / 4 / clkdiv, sysclk/100 = sysclk / 4 / clkdiv, 1/25 = 1/clkdiv
   unsigned clkdiv = (unsigned)(25 * 256); // 1.25MHz @ 125MHz sysclk, 1.5MHz @150MHz sysclk
-  if (pio_jtag_mode == 2)
+  //if (pio_jtag_mode == 2)
     pio_jtag2_init(jtag->pio, jtag->sm, clkdiv, pin_tck, pin_tdi, pin_tdo);
-  else
-    pio_jtag1_init(jtag->pio, jtag->sm, clkdiv, pin_tck, pin_tdi, pin_tdo);
+  //else
+  //  pio_jtag1_init(jtag->pio, jtag->sm, clkdiv, pin_tck, pin_tdi, pin_tdo);
   jtag_set_clk_freq(jtag, freq);
 }
 

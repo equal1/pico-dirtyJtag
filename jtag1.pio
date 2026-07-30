@@ -14,8 +14,7 @@
 ; Autopush and autopull must be enabled, and the serial frame size is set by
 ; configuring the push/pull threshold (32 bits). Shift should be left
 
-; data is captured on the leading edge of each TCK pulse, and
-; transitions on the trailing edge, or some time before the first leading edge.
+; TDI is driven before posedge(TCK), TDO is sampled after
     pull                        ; get length-1 and disregard previous OSR state 
     out x, 32       side 0      ; this moves the first 32 bits into X
 loop:
