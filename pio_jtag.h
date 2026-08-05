@@ -43,6 +43,8 @@ void a5clk_set_freq(const pio_a5clk_inst_t *a5clk, uint freq_khz);
 void a5clk_enable(const pio_a5clk_inst_t *a5clk);
 void a5clk_disable(const pio_a5clk_inst_t *a5clk);
 
+// set custom a5clk mode (call with (0,0) to return to normal)
+void a5clk_set_mode(int ms_L, int ms_H);
 
 static inline void jtag_set_tms(const pio_jtag_inst_t *jtag, bool value)
 {
@@ -54,6 +56,7 @@ static inline void jtag_set_rst(const pio_jtag_inst_t *jtag, bool value)
 //  gpio_set_dir(jtag->pin_rst, !value);
   gpio_put(jtag->pin_rst, value);
 }
+
 //static inline void jtag_set_trst(const pio_jtag_inst_t *jtag, bool value)
 //{
 //  // no TRST on E1 board

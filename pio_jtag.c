@@ -1,5 +1,6 @@
 #include <hardware/clocks.h>
 #include <hardware/dma.h>
+#include <pico/stdlib.h>
 #include "pio_jtag.h"
 #include "config.h"
 //#include "jtag1.pio.h"
@@ -230,6 +231,9 @@ void set_rst_pin(pio_jtag_inst_t* jtag, uint pin_rst)
   gpio_put(pin_rst, true);
 }
 
+// a5clk mode: 0: PIO; 1: GPIO
+static int a5clk_mode = 0;
+
 void init_a5clk(pio_a5clk_inst_t* a5clk, uint freq, uint pin)
 {
   init_a5clk_pin(pin);
@@ -241,6 +245,7 @@ void init_a5clk(pio_a5clk_inst_t* a5clk, uint freq, uint pin)
   unsigned clkdiv = (unsigned)(5 * 256);  // 12.5MHz @ 125MHz sysclk, 15MHz @ 150Mhz sysclk
   pio_a5clk_init(a5clk->pio, a5clk->sm, clkdiv, pin);
   a5clk_set_freq(a5clk, freq);
+  a5clk_mode = 0;
   a5clk->enabled = 0;
 }
 
@@ -283,6 +288,76 @@ void a5clk_set_freq(const pio_a5clk_inst_t *a5clk, uint freq_khz) {
   if (djtag_clocks.a5clk_en)
     pio_sm_set_enabled(a5clk->pio, a5clk->sm, true);
 }
+
+// a5clk mode 1: t_LO, t_HI [ms]
+static unsigned a5clk_m1_tL_ms = 0, a5clk_m1_tH_ms = 0;
+static alarm_id_t a5clk_m1_alarm = -1;
+
+static int64_t set_a5clk_hi(alarm_id_t id, void *user_data);
+static int64_t set_a5clk_lo(alarm_id_t id, void *user_data);
+
+// set a5clk mode (0: PIO; 1: GPIO)
+// if switching to GPIO, also init the perios
+void a5clk_set_mode(int ms_L, int ms_H) {
+  extern pio_a5clk_inst_t a5clk;
+  int mode = ms_L | ms_H; // zero if both are zero
+  // return to regular a5clk?
+  if (! mode) {
+    if (! a5clk_mode)
+      return;
+    // cancel the mode1 alarm
+    if (a5clk_m1_alarm >= 0) {
+      cancel_alarm(a5clk_m1_alarm);
+      a5clk_m1_alarm = -1;
+    }
+    a5clk_mode = 0;
+    // reassign the pin to PIO
+    pio_gpio_init(a5clk.pio, a5clk.pin);
+    // if the clock was set to enabled, restart it, with the previous frequency
+    if (djtag_clocks.a5clk_en)
+      pio_sm_set_enabled(a5clk.pio, a5clk.sm, true);
+    return;
+  }
+  // nope: set custom a5clk
+  if ((ms_L <= 0) || (ms_H <= 0))
+    return;
+  if ((ms_L == a5clk_m1_tL_ms) && (ms_H == a5clk_m1_tH_ms))
+    return;
+  // disable the PIO SM
+  pio_sm_set_enabled(a5clk.pio, a5clk.sm, false);
+  // cancel any pending alarm
+  if (a5clk_m1_alarm >= 0) {
+    cancel_alarm(a5clk_m1_alarm);
+    a5clk_m1_alarm = 1;
+  }
+  // assign the pin to SIO, output, value=0
+  a5clk_mode = 1;
+  a5clk_m1_tL_ms = ms_L;
+  a5clk_m1_tH_ms = ms_H;
+  gpio_init(a5clk.pin);
+  gpio_set_dir(a5clk.pin, true);
+  gpio_put(a5clk.pin, false);
+  // transition to outputting 1 after ms_L [ms]
+  a5clk_m1_alarm = add_alarm_in_ms(ms_L, set_a5clk_hi, 0, true);
+}
+
+int64_t set_a5clk_hi(alarm_id_t id, void *user_data)
+{
+  extern pio_a5clk_inst_t a5clk;
+  a5clk_m1_alarm = add_alarm_in_ms(a5clk_m1_tH_ms, set_a5clk_lo, 0, true);
+  gpio_put(a5clk.pin, true);
+  (void)id; (void)user_data;
+  return 0;
+}
+int64_t set_a5clk_lo(alarm_id_t id, void *user_data)
+{
+  extern pio_a5clk_inst_t a5clk;
+  a5clk_m1_alarm = add_alarm_in_ms(a5clk_m1_tL_ms, set_a5clk_hi, 0, true);
+  gpio_put(a5clk.pin, false);
+  (void)id; (void)user_data;
+  return 0;
+}
+
 
 void jtag_transfer(const pio_jtag_inst_t *jtag, uint32_t length, const uint8_t* in, uint8_t* out)
 {

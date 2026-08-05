@@ -66,8 +66,10 @@ void djtag_init()
   // declare the Ethernet pins
   eth_pins_init();
   // initialize the JTAG and the A5 clock generator
-  init_jtag(&jtag, 1000, PIN_TCK, PIN_TDI, PIN_TDO, PIN_TMS, PIN_RST);
-  init_a5clk(&a5clk, 1000, PIN_A5_CLK);
+  // default JTAG frequency: sysclk/100 (1.25MHz @pico, 1.5MHz @pico2)
+  init_jtag(&jtag, SYSCLK_KHZ_DEFAULT/100, PIN_TCK, PIN_TDI, PIN_TDO, PIN_TMS, PIN_RST);
+  // default a5clk frequency: sysclk/10 (12.5MHz @pico, 15MHz @pico2
+  init_a5clk(&a5clk, SYSCLK_KHZ_DEFAULT/100, PIN_A5_CLK);
   // set the state varibles used to sync ETH and ADC
   adc_busy = 0; eth_busy = 0; 
 # ifdef SPI_PARANOIA

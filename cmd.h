@@ -106,6 +106,9 @@ enum CommandIdentifier {
   // change RST# pin (for FPGA)
   // note: on BYPASS_COUNT or GET_IDCODES, it *will* get reset to PIN_RST
   CMD_SET_RSTN = 0x2D,
+  // set A5CLK custom mode (2x uint16_t payload, { t_LO[ms], t_HI[ms])
+  // note: on asserting reset, this will get reset to normal a5clk
+  CMD_CUSTOM_A5CLK = 0x2E,
 };
 
 enum CommandModifier
@@ -300,7 +303,10 @@ struct djtag_cfg_s {
 #define CAP_FPLL    0x00001000
 
 // temporarily select a different pin to be used as RST#
-#define CAP_CUST_RSTN 0x002000
+#define CAP_CUST_RSTN  0x02000
+
+// set a really slow A5CLK with custom fill factor
+#define CAP_CUST_A5CLK 0x04000
 
 //=[ jtagx api ]===============================================================
 
@@ -388,7 +394,7 @@ int get_arm_state(uint8_t *resp, int imc);
   CAP_BUSACC | CAP_BURST | CAP_ASCIIZ | \
   CAP_ARM | \
   CAP_ADC | CAP_FPLL | \
-  CAP_CUST_RSTN | \
+  CAP_CUST_RSTN | CAP_CUST_A5CLK | \
   0)
 
 // CAP_SCAN: IRSCAN, DRSCAN implemented
