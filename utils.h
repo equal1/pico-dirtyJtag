@@ -95,9 +95,16 @@ const char *last_cmd();
 // free up the memory reserved by the arm IMC console tracking
 void free_console_buffers();
 
+// the following fns only behave if triggered from core 0
+// so if they're called from core 1, set some flags instead and re-trigger from
+// core 0
+extern volatile int core1_bad_error;
+extern volatile int core1_fatal_error;
+
 // used by other things to reboot the pico
 __attribute__((noreturn))
 void bad_error();
 // used to reboot to bootloader
 __attribute__((noreturn))
 void fatal_error();
+

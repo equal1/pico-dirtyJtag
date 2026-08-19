@@ -188,6 +188,12 @@ int main()
   while (1) {
     // update the watchdog
     watchdog_update();
+    // if core1 had some problem, re-issue from core0
+    if (core1_bad_error)
+      bad_error();
+    if (core1_fatal_error)
+      fatal_error();
+    // detect/act upon ttyACM connect/disconnect
 #   ifdef ENABLE_USB_TTY
     if (! usb_dbg_connected) {
       if (tud_cdc_connected()) {

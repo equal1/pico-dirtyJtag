@@ -2,11 +2,13 @@
 #include <pico/stdlib.h>
 #include <pico/binary_info.h>
 #include <pico/bootrom.h>
+#include <pico/multicore.h>
 #include <hardware/gpio.h>
 #include <hardware/spi.h>
 #include <hardware/clocks.h>
 #include <hardware/watchdog.h>
 #include <bsp/board.h>
+#include <tusb.h>
 #include "utils.h"
 #include "config.h"
 #include "ethernet.h"
@@ -166,30 +168,57 @@ int detect_max_spi_speed(spi_inst_t *device, spi_speed_detect_fn_t detector,
   return 0;
 }
 
+// only run these on core 0
+
+volatile int core1_bad_error = 0;
+volatile int core1_fatal_error = 0;
+
 void bad_error()
 {
-  watchdog_reboot(0, 0, 200); // standard boot in 0.2s
+  // on core 1, just set the flag for core 0 to pick up
+  if (get_core_num() != 0)
+    core1_bad_error = 1;
+  else {
+    watchdog_reboot(0, 0, 1000); // standard boot in 1s
+    multicore_reset_core1();
+    // disable the stdio stuff, and make sure the TinyUSB stack is torn down even if the 
+    // USB debug console wasn't up
+    stdio_deinit_all();
+    tud_deinit(0);
+    // trigger a reboot, now
+    watchdog_reboot(0,0,0);
+  }
   while (1)
     asm volatile ("wfe");
 }
 
 void fatal_error()
 {
-  // this is fatal - wait 200ms then reboot to bootloader
-  sleep_ms(200);
-  reset_usb_boot(0, 0);
+  // on core 1, just set the flag for core 0 to pick up
+  if (get_core_num() != 0)
+    core1_fatal_error = 1;
+  else {
+    // standard boot in 1s
+    watchdog_reboot(0, 0, 1000);
+    multicore_reset_core1();
+    stdio_deinit_all();
+    tud_deinit(0);
+    // reboot to bootloader in .2s
+    sleep_ms(200);
+    reset_usb_boot(0, 0);
+    // fallback to a standard reboot
+    watchdog_reboot(0, 0, 0);
+  }
   while (1)
     asm volatile ("wfe");
-}
+} 
 
 // same as the default panic, excepte we end with fatal_error()
 void __attribute__((noreturn)) my_panic(const char *fmt, ...)
 {
-  // register a standard reboot in 1s
-  watchdog_reboot(0, 0, 1000);
   // we start with scheduling the reboot so that even if puts/vprintf mess up,
   // the reboot will still happen
-  puts("\n*** PANIC ***\n");
+  printf("\n*** PANIC on core %u ***\n", get_core_num());
   if (fmt) {
     va_list args;
     va_start(args, fmt);
@@ -197,8 +226,7 @@ void __attribute__((noreturn)) my_panic(const char *fmt, ...)
     puts("\n");
   }
   puts("Rebooting...");
-  while (1)
-    asm volatile ("wfe");
+  bad_error();
 }
 
 // just in case: attempt to override _exit too

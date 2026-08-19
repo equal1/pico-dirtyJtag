@@ -9,8 +9,8 @@ add_definitions(-DPICO_PANIC_FUNCTION=my_panic)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
-#set(CMAKE_BUILD_TYPE "Release")
-#set(TINYUSB_DEBUG_LEVEL 0)
+#set(CMAKE_BUILD_TYPE "Debug")
+#set(TINYUSB_DEBUG_LEVEL 1)
 
 # Define the two required variables before including
 # the source code for watching a git repository.
