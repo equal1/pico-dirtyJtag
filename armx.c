@@ -350,8 +350,8 @@ static struct {
 static const char *arm_upd_err = NULL;
 static int arm_update()
 {
-  if (js.call_depth)
-    printf("call_depth=%u\n", js.call_depth);
+  //if (js.call_depth)
+  //  printf("call_depth=%u\n", js.call_depth);
   arm_upd_err = NULL;
   //---------------------------------------------------------------------------
   // read DHCSR first
