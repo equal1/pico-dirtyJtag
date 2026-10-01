@@ -45,6 +45,7 @@ add_executable(dirtyJtag
 	utils.c
 	jtagx.c
 	armx.c
+	uart.c
 )
 target_include_directories(dirtyJtag PUBLIC 
 	${CMAKE_CURRENT_SOURCE_DIR}

@@ -33,6 +33,10 @@
 # define countof(a) (sizeof(a)/sizeof(a[0]))
 #endif
 
+//=[ LED stuff ]==============================================================
+
+int djtag_uart_init();
+int uart_read(char*);
 
 //=[ LED stuff ]==============================================================
 

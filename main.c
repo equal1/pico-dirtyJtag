@@ -161,6 +161,8 @@ int main()
   fpll_init();
   // generate the whoami description
   whoami_init();
+  // configure the UART
+  djtag_uart_init();
 
   // printf the header
   printf("\n----\n%s----\n", whoami);
@@ -193,6 +195,11 @@ int main()
       bad_error();
     if (core1_fatal_error)
       fatal_error();
+    // see if we have anything on UART
+    static char uart_rx[1024];
+    unsigned n_rx = uart_read(uart_rx);
+    if (n_rx)
+      printf("UART: [%u]\"%.*s\"\n", n_rx, n_rx, uart_rx);
     // detect/act upon ttyACM connect/disconnect
 #   ifdef ENABLE_USB_TTY
     if (! usb_dbg_connected) {

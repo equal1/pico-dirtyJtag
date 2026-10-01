@@ -13,6 +13,36 @@
 #include "config.h"
 #include "ethernet.h"
 
+//=[ UART stuff ]=============================================================
+
+#if 0
+int djtag_uart_init()
+{
+  // configure the GPIOs
+  gpio_set_function(PIN_A5_UART_TX, GPIO_FUNC_UART);
+  gpio_set_function(PIN_A5_UART_RX, GPIO_FUNC_UART);
+  gpio_set_pulls(PIN_A5_UART_TX, 1, 0);
+  gpio_set_pulls(PIN_A5_UART_RX, 1, 0);
+  // init the UART
+  uart_init(UART_A5, BAUD_A5_UART);
+  uart_set_hw_flow(UART_A5, false, false);
+  uart_set_format(UART_A5, 8, 1, UART_PARITY_NONE);
+  uart_set_fifo_enabled(UART_A5, true);
+  // done
+  return 0;
+}
+
+int uart_read(char *d)
+{
+  unsigned n = 0;
+  while (uart_is_readable(UART_A5)) {
+    *d++ = uart_getc(UART_A5);
+    ++n;
+  }
+  return n;
+}
+#endif
+
 //=[ LED stuff ]==============================================================
 
 static int led_pin = -1;

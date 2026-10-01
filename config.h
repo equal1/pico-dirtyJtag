@@ -69,6 +69,7 @@
 #define PIN_DBGTX      PIN_UART1_TX
 
 #define UART_A5        uart0
+#define BAUD_A5_UART   115200
 #define PIN_A5_UART_TX PIN_UART0_RX
 #define PIN_A5_UART_RX PIN_UART0_TX
 
