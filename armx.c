@@ -111,7 +111,7 @@ extern struct djtag_cfg_s jcfg;
 
 //=============================================================================
 
-static void add_imc_text(unsigned, const char *);
+void add_imc_text(unsigned, const char *);
 
 static int console_update();
 

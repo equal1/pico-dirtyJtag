@@ -1,6 +1,7 @@
 #include <pico/stdlib.h>
 #include <hardware/dma.h>
 #include <hardware/irq.h>
+#include <stdio.h>
 #include <string.h>
 #include "config.h"
 #include "utils.h"
@@ -10,9 +11,13 @@
 static struct {
   char rx_buf[UART_RX_BUFFER_SIZE];
   unsigned read_pos;
+  struct {
+    unsigned rx, read;
+  } total;
   int rx_dma_channel;
 } uart = {
   .read_pos = UART_RX_BUFFER_SIZE,
+  .total = { 0, 0 },
   .rx_dma_channel = -1
 };
 static void onUartDmaIrq();
@@ -25,10 +30,7 @@ int djtag_uart_init()
   gpio_set_pulls(PIN_A5_UART_TX, 1, 0);
   gpio_set_pulls(PIN_A5_UART_RX, 1, 0);
   // init the UART
-  uart_init(UART_A5, BAUD_A5_UART);
-  uart_set_hw_flow(UART_A5, false, false);
-  uart_set_format(UART_A5, 8, 1, UART_PARITY_NONE);
-  uart_set_fifo_enabled(UART_A5, true);
+  djtag_uart_set_baud(BAUD_A5_UART);
   //-------------------------------------------------------------------------
   // setup the RX DMA
   uint dma_chan = dma_claim_unused_channel(true);
@@ -58,6 +60,17 @@ int djtag_uart_init()
   return 0;
 }
 
+void djtag_uart_set_baud(unsigned baud)
+{
+  // de-initialize the UART before reconfiguring
+  uart_deinit(UART_A5);
+  // re-initialize with the new baud rate
+  uart_init(UART_A5, baud);
+  uart_set_hw_flow(UART_A5, false, false);
+  uart_set_format(UART_A5, 8, 1, UART_PARITY_NONE);
+  uart_set_fifo_enabled(UART_A5, true);
+}
+
 // shared between rx_dma_channel and tx_dma_channel
 void onUartDmaIrq()
 {
@@ -66,6 +79,7 @@ void onUartDmaIrq()
   if (dma_channel_get_irq1_status(uart.rx_dma_channel))
     dma_channel_set_write_addr(uart.rx_dma_channel, uart.rx_buf, true);
   dma_hw->ints1 = ints;
+  uart.total.rx += UART_RX_BUFFER_SIZE;
 }
 
 int uart_read(char *d)
@@ -93,6 +107,16 @@ int uart_read(char *d)
     n = wpos - rpos;
   }
   // update the read pointer
-  uart.read_pos = rpos;
+  if (extracted) {
+    uart.read_pos = rpos;
+    uart.total.read += extracted;
+  }
+  // notify of overflows
+  unsigned total_got = uart.total.rx + wpos;
+  static int n_overflows = 0;
+  if (total_got - (uart.total.read + n_overflows * UART_RX_BUFFER_SIZE) > UART_RX_BUFFER_SIZE) {
+    ++n_overflows;
+    puts("!!! UART overflow !!!");
+  }
   return extracted;
 }
