@@ -111,7 +111,7 @@ extern struct djtag_cfg_s jcfg;
 
 //=============================================================================
 
-void add_imc_text(unsigned, const char *);
+unsigned add_imc_text(unsigned, const char *);
 
 static int console_update();
 
@@ -619,7 +619,7 @@ int console_update()
 
 //-----------------------------------------------------------------------------
 
-void add_imc_text(unsigned n, const char *s)
+unsigned add_imc_text(unsigned n, const char *s)
 {
   if (n)
     imc_printf ("%.*s", n, s);
@@ -628,10 +628,11 @@ void add_imc_text(unsigned n, const char *s)
     n = 0;
   if (n > state.sz_imc_data - state.n_imc_data)
     n = state.sz_imc_data - state.n_imc_data;
-  if (! n)
-    return;
-  memcpy(state.imc_data + state.n_imc_data, s, n);
-  state.n_imc_data += n;
+  if (n) {
+    memcpy(state.imc_data + state.n_imc_data, s, n);
+    state.n_imc_data += n;
+  }
+  return n;
 }
 
 //=============================================================================

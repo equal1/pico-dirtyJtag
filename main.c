@@ -199,11 +199,16 @@ int main()
     static char uart_rx[1024];
     unsigned n_rx = uart_read(uart_rx);
     if (n_rx) {
+#     if 0
       // don't print too much, we'll *cause* overflows!
       if (n_rx > 19)
         printf("UART: [%u]\"%.*s...\"\n", n_rx, 16, uart_rx);
       else
         printf("UART: [%u]\"%.*s...\"\n", n_rx, n_rx, uart_rx);
+#     endif
+      unsigned m = add_imc_text(n_rx, uart_rx);
+      if (m < n_rx)
+        printf("!!! %u bytes from UART didn't get into the IMC\n", n_rx-m);
     }
     // detect/act upon ttyACM connect/disconnect
 #   ifdef ENABLE_USB_TTY

@@ -39,7 +39,7 @@ int djtag_uart_init();
 void djtag_uart_set_baud(unsigned);
 int uart_read(char*);
 // not really UART, but related
-void add_imc_text(unsigned, const char *);
+unsigned add_imc_text(unsigned, const char *);
 
 //=[ LED stuff ]==============================================================
 
