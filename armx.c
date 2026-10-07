@@ -860,7 +860,7 @@ int get_arm_state(uint8_t *resp, int imc)
     printf("arm_get_state(): arm_update()->%d: %s\n", i, arm_upd_err?arm_upd_err:"???");
   int j = 0;
   // update the IMC console in imc mode, or if the ARM isn't running
-  if (imc || (state.arm.dhcsr & DHCSR_NOT_RUNNING))
+  if (init_args.imc_write && (imc || (state.arm.dhcsr & DHCSR_NOT_RUNNING)))
     j = console_update();
   // if we halted the arm ourselves, unhalt it
   if (state.cfg.halted_by_us) {
