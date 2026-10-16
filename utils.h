@@ -10,6 +10,10 @@
 #define GET_HWORD_AT(ptr) \
   (((uint32_t)((ptr)[0])) | \
    ((uint32_t)((ptr)[1]) << 8))
+#define GET_24B_AT(ptr) \
+  (((uint32_t)((ptr)[0])) | \
+   ((uint32_t)((ptr)[1]) << 8) | \
+   ((uint32_t)((ptr)[2]) << 16))
 #define GET_WORD_AT(ptr) \
   (((uint32_t)((ptr)[0])) | \
    ((uint32_t)((ptr)[1]) << 8) | \
@@ -36,7 +40,7 @@
 //=[ UART stuff ]=============================================================
 
 int djtag_uart_init();
-void djtag_uart_set_baud(unsigned);
+unsigned djtag_uart_set_baud(unsigned);
 int uart_read(char*);
 // not really UART, but related
 unsigned add_imc_text(unsigned, const char *);

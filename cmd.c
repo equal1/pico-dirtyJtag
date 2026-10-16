@@ -828,7 +828,20 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       a5clk_set_mode(n, m);
       cmdpos += 5;
       break;
-      
+
+    // set UART baud rate
+    case CMD_UART_BAUD:
+      n = GET_24B_AT(cmdbuf+cmdpos+1);
+      cmd_printf("UART_BAUD %u\n", n);
+      m = djtag_uart_set_baud(n);
+      cmd_printf("\t> %u\n", m);
+      cmdpos += 4;
+      respbuf[resppos] = m;
+      respbuf[resppos+1] = m >> 8;
+      respbuf[resppos+2] = m >> 16;
+      resppos += 3;
+      break;
+
     default:
       // invalid command: reboot
       // also: print the entire command byte, not just cmd[6:0]

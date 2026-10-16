@@ -60,15 +60,16 @@ int djtag_uart_init()
   return 0;
 }
 
-void djtag_uart_set_baud(unsigned baud)
+unsigned djtag_uart_set_baud(unsigned baud)
 {
   // de-initialize the UART before reconfiguring
   uart_deinit(UART_A5);
   // re-initialize with the new baud rate
-  uart_init(UART_A5, baud);
+  unsigned res = uart_init(UART_A5, baud);
   uart_set_hw_flow(UART_A5, false, false);
   uart_set_format(UART_A5, 8, 1, UART_PARITY_NONE);
   uart_set_fifo_enabled(UART_A5, true);
+  return res;
 }
 
 // shared between rx_dma_channel and tx_dma_channel

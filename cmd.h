@@ -109,6 +109,8 @@ enum CommandIdentifier {
   // set A5CLK custom mode (2x uint16_t payload, { t_LO[ms], t_HI[ms])
   // note: on asserting reset, this will get reset to normal a5clk
   CMD_CUSTOM_A5CLK = 0x2E,
+  // set UART baud rate
+  CMD_UART_BAUD = 0x2F
 };
 
 enum CommandModifier
@@ -308,6 +310,9 @@ struct djtag_cfg_s {
 // set a really slow A5CLK with custom fill factor
 #define CAP_CUST_A5CLK 0x04000
 
+// has UART support
+#define CAP_UART    0x00008000
+
 //=[ jtagx api ]===============================================================
 
 // set default CPU/SYS APs based on what TILESEL points 
@@ -395,6 +400,7 @@ int get_arm_state(uint8_t *resp, int imc);
   CAP_ARM | \
   CAP_ADC | CAP_FPLL | \
   CAP_CUST_RSTN | CAP_CUST_A5CLK | \
+  CAP_UART | \
   0)
 
 // CAP_SCAN: IRSCAN, DRSCAN implemented
