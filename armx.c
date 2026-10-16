@@ -14,7 +14,7 @@
 
 //#define MIRROR_IMC // mirror the IMC output
 
-#define LOCAL_IMC_BUF_SIZE 16384 // have a 16K text buffer
+#define LOCAL_IMC_BUF_SIZE 65536 // 16K is enough for 115200bps UART
 
 #ifdef DEBUG
 #define dprintf(...) (printf(__VA_ARGS__))
@@ -893,7 +893,7 @@ int get_arm_state(uint8_t *resp, int imc)
     if (i >= 4)
       state_size += 4*9; // add the exception structure
     // 
-    unsigned max_imc_len = MAX_RESP_SIZE - (4 + state_size);
+    unsigned max_imc_len = MAX_RESP_SIZE - (4 + state_size) - 16; // play it safe
     int j = state.n_imc_data;
     if (j > max_imc_len)
       j = max_imc_len;
