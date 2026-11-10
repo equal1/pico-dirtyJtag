@@ -24,7 +24,7 @@
 # error Unknown board - should be either PICO_RP2040 or PICO_RP2350 
 #endif
 
-#define ENABLE_SERIAL_TTY // enable debug output on GP8 (UART 115200n8)
+//#define ENABLE_SERIAL_TTY // enable debug output on GP8 (UART 115200n8)
 //#define ENABLE_USB_TTY    // enable debug output over USB (CDC ACM, /dev/ttyACM?)
 
 // size of any incoming, or outgoing, buffer
@@ -74,7 +74,7 @@
 #define PIN_A5_UART_RX PIN_UART0_TX
 
 #define ETH_NAME      "W5500"
-// #define FREQ_ETH_KHZ  80000 // seems to high, comms are unreliable
+// #define FREQ_ETH_KHZ  80000 // seems too high, comms are unreliable
 #define FREQ_ETH_KHZ  33000
 #define SPI_ETH       spi0
 #define PIN_ETH_SCK   PIN_SPI0_SCK
@@ -100,6 +100,8 @@
 #define PIN_IOX_MISO PIN_SPI1_MISO
 #define PIN_IOX_SSn  14 // GP14, header.19
 
+// * removed * - replaced with a more generic SPIX interface
+/*
 // maximum A5 SPI frequency is sysclk/12
 // with a sysclock of 62.5MHz, max A5 SPI frequency is 5.20MHz
 #define FREQ_A5_KHZ 5208
@@ -108,7 +110,11 @@
 #define PIN_A5_MOSI PIN_SPI1_MOSI
 #define PIN_A5_MISO PIN_SPI1_MISO
 #define PIN_A5_SSn  13 // GP13, header.17
+*/
 
+// *removed* - replaced with a more generic SPIX interface; the fPLL
+// logic got moved to e1jtag.so
+/*
 // ADF4368 SPI frequency is 10KHz when breadboarded
 // (initial location; for a5, no sample boards export the SPI signals)
 #define FPLL_NAME     "ADF4368"
@@ -118,6 +124,15 @@
 #define PIN_FPLL_MOSI PIN_SPI1_MOSI
 #define PIN_FPLL_MISO PIN_SPI1_MISO
 #define PIN_FPLL_SSn  13 // GP13, header.17
+*/
+
+#define SPIX_NAME             "SPIX"
+#define DEFAULT_FREQ_SPIX_KHZ 10000
+#define SPI_SPIX              spi1
+#define PIN_SPIX_SCK          PIN_SPI1_SCK
+#define PIN_SPIX_MOSI         PIN_SPI1_MOSI
+#define PIN_SPIX_MISO         PIN_SPI1_MISO
+#define DEFAULT_PIN_SPIX_SSn  13 // GP13, header.17
 
 // other pins on Pico
 #define PIN_A5_SCANEN  6  // GP6,  header.9

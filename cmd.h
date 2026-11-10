@@ -100,9 +100,9 @@ enum CommandIdentifier {
   XCMD_ARM_QUERY = 0x29,
   // random stuff
   XCMD_ASCIIZ_RD = 0x2A,
-  // fPLL commands
-  CMD_FPLL_SETBAUD = 0x2B,
-  CMD_FPLL_WRRD = 0x2C,
+  // // fPLL commands - deprecated
+  // CMD_FPLL_SETBAUD = 0x2B,
+  // CMD_FPLL_WRRD = 0x2C,
   // change RST# pin (for FPGA)
   // note: on BYPASS_COUNT or GET_IDCODES, it *will* get reset to PIN_RST
   CMD_SET_RSTN = 0x2D,
@@ -110,7 +110,11 @@ enum CommandIdentifier {
   // note: on asserting reset, this will get reset to normal a5clk
   CMD_CUSTOM_A5CLK = 0x2E,
   // set UART baud rate
-  CMD_UART_BAUD = 0x2F
+  CMD_UART_BAUD = 0x2F,
+  // SPIx commands (now also used to implement fPLL functions, client-side)
+  CMD_SPIX_CONFIG = 0x30,
+  CMD_SPIX_WRRD = 0x31
+
 };
 
 enum CommandModifier
@@ -301,8 +305,8 @@ struct djtag_cfg_s {
 // 3464R ADC API
 #define CAP_ADC     0x00000800
 
-// ADF4368 fPLL API
-#define CAP_FPLL    0x00001000
+//// ADF4368 fPLL API - deprecated
+//#define CAP_FPLL    0x00001000
 
 // temporarily select a different pin to be used as RST#
 #define CAP_CUST_RSTN  0x02000
@@ -312,6 +316,10 @@ struct djtag_cfg_s {
 
 // has UART support
 #define CAP_UART    0x00008000
+
+// has SPIX support
+#define CAP_SPIX    0x00010000
+
 
 //=[ jtagx api ]===============================================================
 
@@ -398,9 +406,9 @@ int get_arm_state(uint8_t *resp, int imc);
   CAP_ABORT | CAP_DPACC | CAP_APACC | \
   CAP_BUSACC | CAP_BURST | CAP_ASCIIZ | \
   CAP_ARM | \
-  CAP_ADC | CAP_FPLL | \
+  CAP_ADC | \
   CAP_CUST_RSTN | CAP_CUST_A5CLK | \
-  CAP_UART | \
+  CAP_UART | CAP_SPIX | \
   0)
 
 // CAP_SCAN: IRSCAN, DRSCAN implemented

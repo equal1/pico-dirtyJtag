@@ -45,6 +45,12 @@ int uart_read(char*);
 // not really UART, but related
 unsigned add_imc_text(unsigned, const char *);
 
+//=[ SPIX stuff ]=============================================================
+
+void spix_init();
+void spix_config(unsigned freq_khz, unsigned mode, unsigned ssn);
+int spix_wrrd(const uint8_t *out, uint8_t *in, unsigned n);
+
 //=[ LED stuff ]==============================================================
 
 enum led_type_e {

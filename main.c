@@ -15,7 +15,7 @@
 #include "git.h"
 #include "a5pins.h"
 #include "adc.h"
-#include "adf4368.h"
+//#include "adf4368.h"
 #include "ethernet.h"
 #include "misc.h"
 
@@ -125,9 +125,11 @@ int usb_init(uint64_t);
 
 int main()
 {
-  // before we do anything at all - set an alarm to reboot to bootloader in 5s,
-  // unless we successfully got past the initialization stage
+  // before we do anything at all - enable the watchdog (1s), and also set an
+  // alarm to reboot to bootloader, should we fail to finish booting successfully
+  // within 5s
   boot_successful = 0;
+  watchdog_enable(1000, 1);
   add_alarm_in_ms(5000, reboot_on_failed_boot, NULL, true);
   // now we can get busy...
   board_init(); 
@@ -149,20 +151,27 @@ int main()
   stdio_usb_init();
   int usb_dbg_connected = 0;
 # endif
+  watchdog_update();
   eth_init(board_id);
   // configure the IO expander (if present) and the signals connected to it
+  watchdog_update();
   iox_init();
   if (iox_spi_speed > 0)
     a5_iox_pins_init();
+  watchdog_update();
   // configure the ADC (if present)
   adc_busy = 0; eth_busy = 0;
   adc_init();
-  // configure the fPLL (if present)
-  fpll_init();
+  watchdog_update();
+  // prepare the SPIX interface
+  spix_init();
+  watchdog_update();
   // generate the whoami description
   whoami_init();
+  watchdog_update();
   // configure the UART
   djtag_uart_init();
+  watchdog_update();
 
   // printf the header
   printf("\n----\n%s----\n", whoami);
@@ -184,8 +193,6 @@ int main()
   }
 
   multicore_launch_core1(core1_entry);
-  // enable the watchdog timer, with a 1000ms timer
-  watchdog_enable(1000, 1);
   // main loop
   while (1) {
     // update the watchdog
@@ -218,12 +225,9 @@ int main()
         printf("----\n%s%s----\n", whoami,
           (whoami[strlen(whoami)-1]=='\n')?"":"\n");
         usb_dbg_connected = 1;
-#       ifdef DEBUG_FPLL
-        fpll_init();
-#       endif
       }
     }
-    if (usb_dbg_connected) {
+    else { // if (usb_dbg_connected) {
       if (! tud_cdc_connected()) {
         printf("Debug console disconnected.\n");
         usb_dbg_connected = 0;
@@ -535,8 +539,6 @@ void whoami_init()
   //  caps &= ~CAP_IOX;
   if (adc_spi_speed < 500)
     caps &= ~CAP_ADC;
-  if (fpll_spi_speed < 500)
-    caps &= ~CAP_FPLL;
   // print the version
   p += sprintf(p, "equal1 JTAG (%s, %s%s %s) "
 #   ifdef ENABLE_USB_TTY
@@ -567,12 +569,6 @@ void whoami_init()
     p += sprintf(p, "ADC: " ADC_NAME ", spi%c@%u.%03uMHz, SS#@GP%u; device address %c\n",
                  (SPI_ADC == spi0)?'0':'1', f / 1000, f % 1000, PIN_ADC_SSn,
                  '0'+adc_addr);
-  // print the fPLL config
-  f = (fpll_spi_speed + 500) / 1000;
-  if ((f > 0) && (fpll_chip_version >= 0))
-    p += sprintf(p, "fPLL: " FPLL_NAME ", spi%c@%u.%03uMHz, SS#@GP%u; chip version: 0x%02X\n",
-                 (SPI_FPLL == spi0)?'0':'1', f / 1000, f % 1000, PIN_FPLL_SSn,
-                 fpll_chip_version);
   // print the Ethernet config
   if (board_has_ethernet()) {
     p += sprintf(p, "Ethernet: %s, spi%c@%s, SS#@GP%u; MAC address %s, hostname %s\n",

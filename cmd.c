@@ -38,7 +38,7 @@
 //#include "jtag1.pio.h"
 #include "jtag2.pio.h"
 #include "adc.h"
-#include "adf4368.h"
+//#include "adf4368.h"
 #include "utils.h"
 #include "cmd.h"
 
@@ -768,41 +768,29 @@ unsigned cmd_execute(pio_jtag_inst_t* jtag, char buf, const uint8_t *cmdbuf, uns
       ++cmdpos;
       break;
 
-    // fPLL_setBaud(int f_khz) -> int
-    case CMD_FPLL_SETBAUD:
-      cfg = GET_WORD_AT(cmdbuf+cmdpos+1);
-      cmd_printf(" %c# @%u FPLL_SETBAUD %uKHz\n", buf, cmdpos, cfg);
-      cfg = do_fpll_config(cfg);
+    // spix_config(short f_khz, char mode, char ssn) -> void
+    case CMD_SPIX_CONFIG:
+      n = GET_HWORD_AT(cmdbuf+cmdpos+1);
+      cfg = cmdbuf[cmdpos+3];
+      m = cmdbuf[cmdpos+4];
+      cmd_printf(" %c# @%u SPIX_CONFIG %uKHz, mode%u, CS#@GP%u\n", buf, cmdpos, n, cfg, m);
+      spix_config(n, cfg, m);
       cmd_printf("\t> %d\n", cfg);
       SET_WORD_AT(respbuf+resppos, cfg);
       cmdpos += 5;
-      resppos += sizeof(uint32_t);
       break;
-    // fPLL_setBaud(uint8 n, uint8[n] data) -> uint8 n, uint8[n] 
-    case CMD_FPLL_WRRD:
+    // spix_wrrd(uint8 n, uint8[n] data) -> uint8 n, uint8[n] 
+    case CMD_SPIX_WRRD:
       n = cmdbuf[cmdpos+1];
-      m = (((unsigned)cmdbuf[cmdpos+2]) << 8) | cmdbuf[cmdpos+3];
-      cmd_printf(" %c# @%u FPLL_WRRD %u", buf, cmdpos, 1+n);
-      if (n >= 2) {
-        if(! (m & 0x8000))
-          cmd_printf(" w%02X,%02X%s\n", m, cmdbuf[cmdpos+4], (n>2)?"...":"");
-        else
-          cmd_printf(" r%02X\n", m&0x7fff);
-      }
-      m = do_fpll_wrrd(cmdbuf + cmdpos + 2, respbuf + resppos + 1, 1+n) - 1;
+      cmd_printf(" %c# @%u SPIX_WRRD %u", buf, cmdpos, 1+n);
+      m = spix_wrrd(cmdbuf + cmdpos + 2, respbuf + resppos + 1, 1+n) - 1;
       if (m < 0)
         m = 0;
       if (m != n)
         cmd_printf("\t> error\n");
-      else {
-        if (m >= 2) {
-          if(! (cmdbuf[cmdpos+2] & 0x80))
-            cmd_printf("\t> ok\n");
-          else
-            cmd_printf("\t> %02X%s\n", respbuf[resppos+1], (m>2)?"...":"");
-        }
-      }
-      cmdpos += 3+n;
+      else
+        cmd_printf("\t> ok\n");
+      cmdpos += 2+1+n;
       respbuf[resppos++] = m;
       resppos += 1+n;
       break;

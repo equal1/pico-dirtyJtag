@@ -209,15 +209,6 @@ int a5_pico_pins_init() {
   gpio_set_function(PIN_A5_UART_RX, GPIO_FUNC_UART);
   gpio_set_function(PIN_A5_UART_TX, GPIO_FUNC_UART);
   bi_decl(bi_2pins_with_func(PIN_A5_UART_RX, PIN_A5_UART_TX, GPIO_FUNC_UART));
-  // initialize SPI pins
-  gpio_set_function(PIN_A5_SCK, GPIO_FUNC_SPI);
-  gpio_set_function(PIN_A5_MOSI, GPIO_FUNC_SPI);
-  gpio_set_function(PIN_A5_MISO, GPIO_FUNC_SPI);
-  bi_decl(bi_3pins_with_func(PIN_A5_SCK, PIN_A5_MOSI, PIN_A5_MISO, GPIO_FUNC_SPI));
-  gpio_init(PIN_A5_SSn);
-  gpio_put(PIN_A5_SSn, 1); // initially de-selected
-  gpio_set_dir(PIN_A5_SSn, GPIO_OUT);
-  bi_decl(bi_1pin_with_name(PIN_A5_SSn, "A5_SS#"));
   // scan pins (weak pulldown on SCANOUT)
   gpio_init(PIN_A5_SCANEN);
   gpio_put(PIN_A5_SCANEN, 0); // initially de-selected
@@ -298,8 +289,8 @@ static const uint32_t pico_pins =
   (1 << PIN_TMS) | (1 << PIN_TCK) | (1 << PIN_TDO) | (1 << PIN_TDI) |
   // A5 UART pins
   (1 << PIN_A5_UART_TX) | (1 << PIN_A5_UART_RX) |
-  // A5 SPI pins
-  (1 << PIN_A5_SSn) | (1 << PIN_A5_SCK) | (1 << PIN_A5_MOSI) | (1 << PIN_A5_MISO) |
+  // SPI pins (Alpha/fPLL/DAC)
+  (1 << DEFAULT_PIN_SPIX_SSn) | (1 << PIN_SPIX_SCK) | (1 << PIN_SPIX_MOSI) | (1 << PIN_SPIX_MISO) |
   // A5 SCAN pins
   (1 << PIN_A5_SCANIN) | (1 << PIN_A5_SCANOUT) | (1 << PIN_A5_SCANEN) |
   // directly-connected A5 GPIOs
@@ -333,10 +324,10 @@ static const char *pico_signames[32] = {
   [PIN_TDI] =        "TDI",
   [PIN_A5_UART_TX] = "TX",
   [PIN_A5_UART_RX] = "RX",
-  [PIN_A5_SSn] =     "SS#",
-  [PIN_A5_SCK] =     "SCK",
-  [PIN_A5_MOSI] =    "MOSI",
-  [PIN_A5_MISO] =    "MISO",
+  [DEFAULT_PIN_SPIX_SSn] = "SS#",
+  [PIN_SPIX_SCK] =   "SCK",
+  [PIN_SPIX_MOSI] =  "MOSI",
+  [PIN_SPIX_MISO] =  "MISO",
   [PIN_A5_GPIO6] =   "GPIO6",
   [PIN_A5_GPIO10] =  "GPIO10",
   [PIN_A5_SCANIN] =  "SCANIN",
